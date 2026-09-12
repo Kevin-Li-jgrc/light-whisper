@@ -2179,6 +2179,58 @@ mod tests {
     }
 
     #[test]
+    fn chatgpt_backend_responses_gpt6_maps_public_reasoning_modes_without_chat_fields() {
+        let mut endpoint = openai_endpoint("https://api.openai.com/v1/responses");
+        endpoint.model = "gpt-6-astra".to_string();
+        let api_key = chatgpt_codex_api_key();
+        let expected = [
+            (LlmReasoningMode::Off, "low"),
+            (LlmReasoningMode::Light, "medium"),
+            (LlmReasoningMode::Balanced, "high"),
+            (LlmReasoningMode::Deep, "xhigh"),
+        ];
+
+        for (mode, effort) in expected {
+            let body = build_llm_body(
+                &endpoint,
+                "system",
+                &LlmUserInput::from("hello"),
+                LlmRequestOptions {
+                    reasoning_mode: mode,
+                    ..LlmRequestOptions::default()
+                },
+            );
+            assert_eq!(body["reasoning"]["effort"], serde_json::json!(effort));
+            assert!(body.get("temperature").is_none());
+            assert!(body.get("top_p").is_none());
+
+            let adapted = adapt_body_for_backend(&endpoint, &api_key, &body, false);
+            assert_eq!(adapted["reasoning"]["effort"], serde_json::json!(effort));
+            assert_eq!(adapted["stream"], serde_json::json!(true));
+            assert_eq!(adapted["store"], serde_json::json!(false));
+            assert!(adapted.get("reasoning_effort").is_none());
+            assert!(adapted.get("max_output_tokens").is_none());
+            assert!(adapted.get("temperature").is_none());
+            assert!(adapted.get("top_p").is_none());
+        }
+
+        let provider_default = build_llm_body(
+            &endpoint,
+            "system",
+            &LlmUserInput::from("hello"),
+            LlmRequestOptions::default(),
+        );
+        assert!(provider_default.get("reasoning").is_none());
+        assert!(provider_default.get("reasoning_effort").is_none());
+        let adapted_default = adapt_body_for_backend(&endpoint, &api_key, &provider_default, false);
+        assert_eq!(adapted_default["stream"], serde_json::json!(true));
+        assert_eq!(adapted_default["store"], serde_json::json!(false));
+        assert!(adapted_default.get("reasoning").is_none());
+        assert!(adapted_default.get("reasoning_effort").is_none());
+        assert!(adapted_default.get("max_output_tokens").is_none());
+    }
+
+    #[test]
     fn recognizes_output_token_limit_unsupported_errors() {
         assert!(looks_like_output_token_limit_unsupported_error(
             "Unknown parameter: max_output_tokens"

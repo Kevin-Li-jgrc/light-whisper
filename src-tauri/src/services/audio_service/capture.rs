@@ -82,6 +82,24 @@ fn wait_for_windows_native_capture(
 }
 
 #[cfg(target_os = "windows")]
+fn handoff_native_capture_samples(
+    accept_rx: &mpsc::Receiver<bool>,
+    probe_samples: &Arc<parking_lot::Mutex<Vec<i16>>>,
+    captured_samples: &Arc<parking_lot::Mutex<Vec<i16>>>,
+    cap: usize,
+) -> bool {
+    if !matches!(accept_rx.recv(), Ok(true)) {
+        return false;
+    }
+
+    let priming_samples = std::mem::take(&mut *probe_samples.lock());
+    let mut captured = captured_samples.lock();
+    let remaining = cap.saturating_sub(captured.len());
+    captured.extend(priming_samples.into_iter().take(remaining));
+    true
+}
+
+#[cfg(target_os = "windows")]
 fn run_windows_native_capture(
     stop: Arc<AtomicBool>,
     samples: Arc<parking_lot::Mutex<Vec<i16>>>,
@@ -111,7 +129,14 @@ fn run_windows_native_capture(
                         // The watchdog must explicitly accept this stream. A late
                         // success after timeout is dropped instead of mixing its 16 kHz
                         // samples into the CPAL fallback buffer.
-                        if startup_tx.send(Ok(())).is_ok() && matches!(accept_rx.recv(), Ok(true)) {
+                        if startup_tx.send(Ok(())).is_ok()
+                            && handoff_native_capture_samples(
+                                &accept_rx,
+                                &probe_samples,
+                                &worker_samples,
+                                MAX_RECORD_SAMPLES,
+                            )
+                        {
                             capture.run(&worker_stop, &worker_samples);
                             log::info!("Windows 原生音频捕获已停止");
                         }
@@ -576,12 +601,13 @@ mod cap_tests {
     //!
     //!   - `MAX_RECORD_SAMPLES` is 30 minutes of 48 kHz mono and must be
     //!     large enough to cover at least an hour of 16 kHz mono.
-    use super::{
-        mix_to_mono_capped_f32, mix_to_mono_capped_i16, mix_to_mono_capped_u16, MAX_RECORD_SAMPLES,
-    };
     #[cfg(target_os = "windows")]
     use super::{
-        spawn_audio_capture_thread, wait_for_windows_native_capture, WindowsNativeCaptureStartup,
+        handoff_native_capture_samples, spawn_audio_capture_thread,
+        wait_for_windows_native_capture, WindowsNativeCaptureStartup,
+    };
+    use super::{
+        mix_to_mono_capped_f32, mix_to_mono_capped_i16, mix_to_mono_capped_u16, MAX_RECORD_SAMPLES,
     };
 
     const MIN_ONE_HOUR_16K_SAMPLES: usize = 60 * 60 * 16_000;
@@ -629,6 +655,119 @@ mod cap_tests {
             WindowsNativeCaptureStartup::TimedOut
         );
         assert!(started.elapsed() < std::time::Duration::from_millis(200));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn native_capture_handoff_puts_priming_before_live_samples_once() {
+        let probe_samples = std::sync::Arc::new(parking_lot::Mutex::new(vec![101, 102, 103]));
+        let captured_samples = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let (accept_tx, accept_rx) = std::sync::mpsc::sync_channel(1);
+        accept_tx.send(true).unwrap();
+
+        assert!(handoff_native_capture_samples(
+            &accept_rx,
+            &probe_samples,
+            &captured_samples,
+            8,
+        ));
+
+        // `run` appends live packets after the handoff. The probe must already
+        // be at the front of the shared stream and must be consumed exactly once.
+        captured_samples.lock().extend([201, 202]);
+        assert_eq!(*captured_samples.lock(), vec![101, 102, 103, 201, 202]);
+        assert!(probe_samples.lock().is_empty());
+
+        let (second_accept_tx, second_accept_rx) = std::sync::mpsc::sync_channel(1);
+        second_accept_tx.send(true).unwrap();
+        assert!(handoff_native_capture_samples(
+            &second_accept_rx,
+            &probe_samples,
+            &captured_samples,
+            8,
+        ));
+        assert_eq!(*captured_samples.lock(), vec![101, 102, 103, 201, 202]);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn native_capture_handoff_honors_cap_after_existing_samples() {
+        let probe_samples = std::sync::Arc::new(parking_lot::Mutex::new(vec![10, 11, 12, 13]));
+        let captured_samples = std::sync::Arc::new(parking_lot::Mutex::new(vec![1, 2, 3]));
+        let (accept_tx, accept_rx) = std::sync::mpsc::sync_channel(1);
+        accept_tx.send(true).unwrap();
+
+        assert!(handoff_native_capture_samples(
+            &accept_rx,
+            &probe_samples,
+            &captured_samples,
+            5,
+        ));
+
+        assert_eq!(*captured_samples.lock(), vec![1, 2, 3, 10, 11]);
+        assert_eq!(captured_samples.lock().len(), 5);
+        assert!(probe_samples.lock().is_empty());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn native_capture_handoff_rejection_leaves_fallback_untouched() {
+        let probe_samples = std::sync::Arc::new(parking_lot::Mutex::new(vec![101, 102]));
+        let captured_samples = std::sync::Arc::new(parking_lot::Mutex::new(vec![901, 902]));
+        let (accept_tx, accept_rx) = std::sync::mpsc::sync_channel(1);
+        accept_tx.send(false).unwrap();
+
+        assert!(!handoff_native_capture_samples(
+            &accept_rx,
+            &probe_samples,
+            &captured_samples,
+            8,
+        ));
+
+        assert_eq!(*captured_samples.lock(), vec![901, 902]);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn native_capture_handoff_cancellation_leaves_fallback_untouched() {
+        let probe_samples = std::sync::Arc::new(parking_lot::Mutex::new(vec![101, 102]));
+        let captured_samples = std::sync::Arc::new(parking_lot::Mutex::new(vec![901, 902]));
+        let (accept_tx, accept_rx) = std::sync::mpsc::sync_channel(1);
+        drop(accept_tx);
+
+        assert!(!handoff_native_capture_samples(
+            &accept_rx,
+            &probe_samples,
+            &captured_samples,
+            8,
+        ));
+
+        assert_eq!(*captured_samples.lock(), vec![901, 902]);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn native_capture_handoff_watchdog_timeout_does_not_leak_late_probe() {
+        let (_startup_tx, startup_rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
+        assert_eq!(
+            wait_for_windows_native_capture(&startup_rx, std::time::Duration::ZERO),
+            WindowsNativeCaptureStartup::TimedOut
+        );
+
+        let probe_samples = std::sync::Arc::new(parking_lot::Mutex::new(vec![101, 102]));
+        let captured_samples = std::sync::Arc::new(parking_lot::Mutex::new(vec![901, 902]));
+        let (accept_tx, accept_rx) = std::sync::mpsc::sync_channel(1);
+        // The timeout branch drops its sender; a late native worker observes
+        // this disconnect and must not write its already-primed samples.
+        drop(accept_tx);
+
+        assert!(!handoff_native_capture_samples(
+            &accept_rx,
+            &probe_samples,
+            &captured_samples,
+            8,
+        ));
+        assert_eq!(*captured_samples.lock(), vec![901, 902]);
     }
 
     // ----- mix_to_mono_capped_i16 ----------------------------------------

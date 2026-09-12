@@ -763,7 +763,7 @@ const GPT5_2_54_PRO_EFFORTS: &[&str] = &["medium", "high", "xhigh"];
 const GPT5_2_3_CODEX_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh"];
 const GPT5_1_CODEX_MAX_EFFORTS: &[&str] = &["none", "medium", "high", "xhigh"];
 
-fn openai_gpt5_reasoning_efforts(model: &str) -> Option<&'static [&'static str]> {
+fn openai_reasoning_efforts(model: &str) -> Option<&'static [&'static str]> {
     let normalized = model.trim().to_ascii_lowercase();
     let tail = normalized.rsplit('/').next().unwrap_or(&normalized);
     match tail {
@@ -796,14 +796,15 @@ fn openai_gpt5_reasoning_efforts(model: &str) -> Option<&'static [&'static str]>
         _ if tail.starts_with("gpt-5.5-") => Some(GPT5_5_EFFORTS),
         "gpt-5.6" => Some(GPT5_6_EFFORTS),
         _ if tail.starts_with("gpt-5.6-") => Some(GPT5_6_EFFORTS),
+        "gpt-6-astra" => Some(GPT5_6_EFFORTS),
         "gpt-5" => Some(GPT5_EFFORTS),
         _ if tail.starts_with("gpt-5-") => Some(GPT5_EFFORTS),
         _ => None,
     }
 }
 
-fn openai_gpt5_effort_for_mode(model: &str, mode: LlmReasoningMode) -> Option<&'static str> {
-    let efforts = openai_gpt5_reasoning_efforts(model)?;
+fn openai_effort_for_mode(model: &str, mode: LlmReasoningMode) -> Option<&'static str> {
+    let efforts = openai_reasoning_efforts(model)?;
     let index = match mode {
         LlmReasoningMode::Off => 0,
         LlmReasoningMode::Light => 1,
@@ -975,7 +976,7 @@ fn reasoning_control_kind(
         return Some(ReasoningControlKind::AutoOpenaiCompat);
     }
 
-    if openai_gpt5_reasoning_efforts(model).is_some() {
+    if openai_reasoning_efforts(model).is_some() {
         return Some(ReasoningControlKind::OpenaiEffort);
     }
 
@@ -1009,8 +1010,8 @@ pub fn reasoning_support(endpoint: &LlmEndpoint, uses_responses_api: bool) -> Ll
         "当前 SiliconFlow 模型不在官方支持 thinking_budget 的推理模型范围内，思考模式不可用。"
     } else if is_cerebras_like_endpoint(endpoint) {
         "当前 Cerebras 模型未识别到官方 reasoning_effort 支持，思考模式不可用。"
-    } else if openai_gpt5_reasoning_efforts(&endpoint.model).is_some() {
-        "当前模型名看起来属于 GPT-5，但当前接口路径不支持对应的思考控制参数。"
+    } else if openai_reasoning_efforts(&endpoint.model).is_some() {
+        "当前模型名看起来属于 OpenAI GPT 系列，但当前接口路径不支持对应的思考控制参数。"
     } else {
         "当前模型未识别到官方思考控制参数，思考模式不可用。"
     };
@@ -1337,7 +1338,7 @@ pub fn apply_reasoning_controls(
             apply_auto_reasoning_strategy(body, strategy, mode);
         }
         (ReasoningControlKind::OpenaiEffort, _) => {
-            let Some(effort) = openai_gpt5_effort_for_mode(&endpoint.model, mode) else {
+            let Some(effort) = openai_effort_for_mode(&endpoint.model, mode) else {
                 return;
             };
 
@@ -2253,6 +2254,21 @@ mod tests {
                 Some("openai_reasoning_effort")
             );
         }
+    }
+
+    #[test]
+    fn openai_gpt6_astra_matches_gpt5_6_effort_mapping() {
+        let endpoint =
+            endpoint_for_preview(OPENAI, None, Some("gpt-6-astra"), ApiFormat::OpenaiCompat);
+
+        assert_eq!(
+            reasoning_efforts_for_modes(&endpoint),
+            strings(&["low", "medium", "high", "xhigh"])
+        );
+        assert_eq!(
+            reasoning_support(&endpoint, true).strategy.as_deref(),
+            Some("openai_reasoning_effort")
+        );
     }
 
     #[test]

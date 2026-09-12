@@ -38,3 +38,13 @@ describe("xAI Grok provider preset", () => {
   });
 });
 
+describe("OpenAI GPT-6 preset", () => {
+  it("keeps the existing default while exposing GPT-6 Astra", () => {
+    const openai = findLlmPreset("openai");
+
+    expect(openai.defaultModel).toBe("gpt-4.1-mini");
+    expect(openai.models).toContain("gpt-6-astra");
+    expect(isFixedPresetProvider("openai")).toBe(true);
+  });
+});
+
