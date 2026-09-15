@@ -1,22 +1,16 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { listen } from "@tauri-apps/api/event";
-import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ArrowLeft, Mic, Monitor, Eye, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, ChevronsUpDown, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useHotkeyCapture } from "@/hooks/useHotkeyCapture";
 import { useExclusivePicker } from "@/hooks/useExclusivePicker";
+import { useSystemSettings } from "@/hooks/useSystemSettings";
+import { useModelDiscovery } from "@/hooks/useModelDiscovery";
+import { useAsrEngineSettings } from "@/hooks/useAsrEngineSettings";
+import { useModelDirectorySettings } from "@/hooks/useModelDirectorySettings";
+import { useMicrophoneSettings } from "@/hooks/useMicrophoneSettings";
 import {
-  checkAppUpdate,
-  disableAutostart,
-  enableAutostart,
-  getEngine,
-  isAutostartEnabled,
-  openAppReleasePage,
-  pasteText,
-  setEngine,
-  testMicrophone,
   setInputMethodCommand,
   setAiPolishConfig,
   setScreenContextEnabled,
@@ -31,28 +25,12 @@ import {
   setScreenVisionConfig,
   getScreenVisionApiKey,
   setScreenVisionApiKey,
-  exportUserProfile,
-  listInputDevices,
-  importUserProfile,
-  setInputDevice,
   setSoundEnabled,
-  startMicrophoneLevelMonitor,
-  stopMicrophoneLevelMonitor,
   setTranslationTarget,
   setTranslationHotkey,
   setCustomPrompt,
   setPolishStructureLevel,
   setRecordingMode,
-  setOnlineAsrApiKey,
-  getOnlineAsrApiKey,
-  getOnlineAsrEndpoint,
-  setOnlineAsrEndpoint,
-  getAlibabaAsrConfig,
-  setAlibabaAsrModel,
-  listAlibabaAsrModels,
-  getModelsDir,
-  pickFolder,
-  setModelsDir,
   addCustomProvider,
   removeCustomProvider,
   setAssistantHotkey,
@@ -75,7 +53,7 @@ import {
   getWebSearchApiKey,
   hideMainWindow,
 } from "@/api/tauri";
-import type { AiModelInfo, CustomProvider, InputDeviceInfo, UserProfile, ApiFormat, GrokBuildOauthDeviceCodeChallenge, GrokBuildOauthStatus, LlmReasoningMode, LlmReasoningSupport, OpenaiAuthMode, OpenaiCodexOauthDeviceCodeChallenge, OpenaiCodexOauthStatus, PolishStructureLevel, WebSearchProvider, XaiAuthMode } from "@/types";
+import type { CustomProvider, UserProfile, ApiFormat, GrokBuildOauthDeviceCodeChallenge, GrokBuildOauthStatus, LlmReasoningMode, LlmReasoningSupport, OpenaiAuthMode, OpenaiCodexOauthDeviceCodeChallenge, OpenaiCodexOauthStatus, PolishStructureLevel, WebSearchProvider, XaiAuthMode } from "@/types";
 import { useRecordingContext } from "@/contexts/RecordingContext";
 import SecretInput from "@/components/SecretInput";
 import Kbd from "@/components/Kbd";
@@ -87,7 +65,7 @@ import SelectionAssistantSettingsSection from "@/components/settings/SelectionAs
 import AppProfileRulesSettingsSection from "@/components/settings/AppProfileRulesSettingsSection";
 import HistorySettingsSection from "@/components/settings/HistorySettingsSection";
 import PolishStructureControl from "@/components/settings/PolishStructureControl";
-import { PADDING, INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY, MIC_LEVEL_MONITOR_ENABLED_KEY } from "@/lib/constants";
+import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
 import { formatAsrEngineDescription, getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
 import {
   resolveAssistantModelForProviderChange,
@@ -190,11 +168,6 @@ const sourceColors: Record<string, string> = {
   user: "var(--color-accent)",
   learned: "var(--color-learned)",
 };
-
-interface MicrophoneLevelPayload {
-  deviceName?: string;
-  level?: number;
-}
 
 interface LlmProviderDraft {
   baseUrl: string;
@@ -361,19 +334,9 @@ export default function SettingsPage({
   });
 
   // --- Core state ---
-  const [engine, setEngineState] = useState<string>("qwen3-asr-0.6b");
-  const [engineLoading, setEngineLoading] = useState(true);
-  const [autostart, setAutostart] = useState(false);
-  const [autostartLoading, setAutostartLoading] = useState(true);
   const [recordingMode, setRecordingModeState] = useState<"hold" | "toggle">(() => {
     return readLocalStorage(RECORDING_MODE_KEY) === "toggle" ? "toggle" : "hold";
   });
-  const [inputDevices, setInputDevices] = useState<InputDeviceInfo[]>([]);
-  const [selectedInputDeviceName, setSelectedInputDeviceName] = useState<string>("");
-  const [deviceListLoading, setDeviceListLoading] = useState(true);
-  const [micLevel, setMicLevel] = useState(0);
-  const [micMonitorReady, setMicMonitorReady] = useState(false);
-  const [micLevelMonitorEnabled, setMicLevelMonitorEnabled] = useState(() => readLocalStorage(MIC_LEVEL_MONITOR_ENABLED_KEY) === "true");
   const [inputMethod, setInputMethod] = useState<"sendInput" | "clipboard">(() => {
     return readLocalStorage(INPUT_METHOD_KEY) === "clipboard" ? "clipboard" : "sendInput";
   });
@@ -386,34 +349,9 @@ export default function SettingsPage({
   const [grokBuildOauthStatus, setGrokBuildOauthStatus] = useState<GrokBuildOauthStatus>({ loggedIn: false });
   const [grokBuildOauthLoading, setGrokBuildOauthLoading] = useState(false);
   const [grokBuildOauthDeviceCode, setGrokBuildOauthDeviceCode] = useState<GrokBuildOauthDeviceCodeChallenge | null>(null);
-  const [onlineAsrApiKey, setOnlineAsrApiKeyState] = useState("");
-  const [onlineAsrRegion, setOnlineAsrRegion] = useState("international");
-  const [onlineAsrUrl, setOnlineAsrUrl] = useState("");
-  const [onlineAsrRegionLoading, setOnlineAsrRegionLoading] = useState(false);
-  const [alibabaAsrModel, setAlibabaAsrModelState] = useState<string>("qwen3-asr-flash");
-  const [alibabaAsrModels, setAlibabaAsrModelsState] = useState<readonly string[]>([]);
-  const [alibabaAsrModelsSource, setAlibabaAsrModelsSource] = useState<"live" | "fallback">("fallback");
-  const [alibabaAsrModelsLoading, setAlibabaAsrModelsLoading] = useState(false);
-  const [modelsDir, setModelsDirState] = useState("");
-  const [modelsDirCustom, setModelsDirCustom] = useState(false);
-  const [modelsDirMigrating, setModelsDirMigrating] = useState(false);
-  const [modelsMigrateMsg, setModelsMigrateMsg] = useState("");
-  const [lastExportPath, setLastExportPath] = useState("");
 
-  // --- AI models ---
-  const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
-  const [assistantModels, setAssistantModels] = useState<AiModelInfo[]>([]);
-  const aiModelsRequestIdRef = useRef(0);
-  const assistantModelsRequestIdRef = useRef(0);
-  const aiModelsContextRef = useRef<string | null>(null);
-  const assistantModelsContextRef = useRef<string | null>(null);
-  const [assistantModelsLoading, setAssistantModelsLoading] = useState(false);
   const [aiModelSearch, setAiModelSearch] = useState("");
   const [assistantModelSearch, setAssistantModelSearch] = useState("");
-  const [aiModelsLoading, setAiModelsLoading] = useState(false);
-  const [aiModelsError, setAiModelsError] = useState("");
-  const [assistantModelsError, setAssistantModelsError] = useState("");
-  const [aiModelsSourceUrl, setAiModelsSourceUrl] = useState("");
   const [providerSearch, setProviderSearch] = useState("");
   const [assistantProviderSearch, setAssistantProviderSearch] = useState("");
 
@@ -549,11 +487,6 @@ export default function SettingsPage({
   const [webSearchMaxResults, setWebSearchMaxResultsState] = useState(5);
   const [webSearchApiKey, setWebSearchApiKeyState] = useState("");
   const webSearchKeyRequestIdRef = useRef(0);
-  const [appVersion, setAppVersion] = useState("");
-  const [updateChecking, setUpdateChecking] = useState(false);
-  const [updateStatusText, setUpdateStatusText] = useState("");
-  const [latestAvailableVersion, setLatestAvailableVersion] = useState<string | null>(null);
-  const [latestReleaseUrl, setLatestReleaseUrl] = useState<string | null>(null);
 
   // --- Correction validation ---
   const [validationEnabled, setValidationEnabled] = useState(false);
@@ -616,32 +549,6 @@ export default function SettingsPage({
       xaiAuthMode,
     ).catch(() => {});
   }, 400, { onUnmount: "flush" });
-
-  // 在线 ASR 的 keyring 槽由调用瞬间锁定（不是 debounce 触发瞬间），
-  // 避免"在 GLM 输入框打字 → 立刻切 Alibaba → 延迟回调把 GLM 的 key 写进
-  // Alibaba 槽"这种数据丢失。
-  const computeOnlineAsrKeyringUser = useCallback(
-    (engineValue: string, region: string): string => {
-      if (engineValue === "alibaba-asr") {
-        return region === "domestic" ? "alibaba-asr-cn-api-key" : "alibaba-asr-intl-api-key";
-      }
-      return "glm-asr-api-key";
-    },
-    [],
-  );
-
-  const onlineAsrKeySave = useDebouncedCallback(
-    async (value: string, keyringUser: string) => {
-      try {
-        await setOnlineAsrApiKey(value, keyringUser);
-      } catch (error) {
-        toast.error(t("toast.onlineAsrKeySaveFailed"));
-        throw error;
-      }
-    },
-    600,
-    { onUnmount: "flush" },
-  );
 
   const customPromptSave = useDebouncedCallback((value: string) => {
     setCustomPrompt(value.trim() || null).catch(() => {
@@ -873,7 +780,22 @@ export default function SettingsPage({
     });
   }, [refreshProfile, refreshAssistantKey, refreshGrokBuildOauthStatus, refreshOpenaiCodexOauthStatus, refreshScreenVisionKey, refreshWebSearchKey]);
 
-  useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
+  const {
+    appVersion,
+    autostart,
+    autostartLoading,
+    handleAutostartToggle,
+    handleCheckForUpdates,
+    handleCopyExportPath,
+    handleExportConfig,
+    handleImportConfig,
+    handleOpenReleasePage,
+    handleTestPaste,
+    lastExportPath,
+    latestAvailableVersion,
+    updateChecking,
+    updateStatusText,
+  } = useSystemSettings({ inputMethod, refreshProfile, refreshAiPolishKey });
 
   useEffect(() => {
     if (!assistantUsesOpenaiOauth || webSearchProvider !== "model_native") return;
@@ -884,285 +806,51 @@ export default function SettingsPage({
     }
   }, [assistantUsesOpenaiOauth, picker, webSearchConfigSave, webSearchEnabled, webSearchMaxResults, webSearchProvider]);
 
-  useEffect(() => {
-    getEngine().then(e => {
-      setEngineState(e);
-      setEngineLoading(false);
-    }).catch(() => setEngineLoading(false));
-    getOnlineAsrApiKey().then(k => setOnlineAsrApiKeyState(k || "")).catch(() => {});
-    getOnlineAsrEndpoint().then(ep => {
-      setOnlineAsrRegion(ep.region);
-      setOnlineAsrUrl(ep.url);
-    }).catch(() => {});
-    getAlibabaAsrConfig().then(cfg => {
-      setAlibabaAsrModelState(cfg.model);
-      setAlibabaAsrModelsState(cfg.models);
-    }).catch(() => {});
-    getModelsDir().then(info => {
-      setModelsDirState(info.path);
-      setModelsDirCustom(info.is_custom);
-    }).catch(() => {});
-  }, []);
+  const engineLabel = useCallback((engineValue: string) => {
+    const option = engineOptions.find((item) => item.key === engineValue);
+    return option ? engineOptionLabel(option, t) : engineValue;
+  }, [t]);
 
-  /** 触发一次 DashScope /v1/models 抓取，用于刷新 Alibaba 模型下拉框。 */
-  const refreshAlibabaModels = useCallback(async () => {
-    setAlibabaAsrModelsLoading(true);
-    try {
-      const res = await listAlibabaAsrModels();
-      if (res.models.length > 0) {
-        setAlibabaAsrModelsState(res.models);
-        setAlibabaAsrModelsSource(res.source);
-      }
-    } catch {
-      // 静默失败：保留上次的 fallback 列表，避免 UI 空白
-    } finally {
-      setAlibabaAsrModelsLoading(false);
-    }
-  }, []);
+  const {
+    alibabaAsrModel,
+    alibabaAsrModels,
+    alibabaAsrModelsLoading,
+    alibabaAsrModelsSource,
+    alibabaHasKey,
+    engine,
+    engineLoading,
+    handleAlibabaAsrModelSelect,
+    handleEngineSwitch,
+    handleOnlineAsrApiKeyChange,
+    handleOnlineAsrRegionChange,
+    onlineAsrApiKey,
+    onlineAsrRegion,
+    onlineAsrRegionLoading,
+    onlineAsrUrl,
+    refreshAlibabaModels,
+  } = useAsrEngineSettings({ engineLabel, retryModel });
 
-  // Alibaba 引擎下：有 API Key 或区域切换时自动刷新模型清单。
-  // 故意不把 alibabaAsrModel 或 onlineAsrApiKey 的每一次 keystroke 都当触发点——
-  // 那样会在用户边输入边发请求。只看 key 从空变非空的瞬间 + 区域变化。
-  const alibabaHasKey = engine === "alibaba-asr" && onlineAsrApiKey.trim().length > 0;
-  useEffect(() => {
-    if (engine !== "alibaba-asr") return;
-    if (!alibabaHasKey) return;
-    void refreshAlibabaModels();
-  }, [engine, alibabaHasKey, onlineAsrRegion, refreshAlibabaModels]);
+  const {
+    handleChooseModelsDir,
+    handleRestoreDefaultModelsDir,
+    modelsDir,
+    modelsDirCustom,
+    modelsDirMigrating,
+    modelsMigrateMsg,
+  } = useModelDirectorySettings({ retryModel });
 
-  useEffect(() => {
-    const unlisten = listen<{ status: string; message?: string; progress?: number }>(
-      "models-migrate-status",
-      (event) => {
-        const { status, message } = event.payload;
-        if (status === "migrating" && message) {
-          setModelsMigrateMsg(message);
-        } else if (status === "completed") {
-          setModelsMigrateMsg("");
-        }
-      },
-    );
-    return () => { unlisten.then(fn => fn()); };
-  }, []);
-
-  const handleEngineSwitch = async (newEngine: string) => {
-    if (engineLoading || newEngine === engine) return;
-    setEngineLoading(true);
-    // 切换引擎之前先把 debounce 里还在等待的 key 落盘到原引擎槽，
-    // 防止它变成 fire-and-forget 和 set_engine 抢 engine.json 的写入顺序。
-    try {
-      try {
-        await onlineAsrKeySave.flush();
-      } catch {
-        return;
-      }
-      await setEngine(newEngine);
-      setEngineState(newEngine);
-      const option = engineOptions.find((item) => item.key === newEngine);
-      const label = option ? engineOptionLabel(option, t) : newEngine;
-      toast.success(t("toast.switchedToEngine", { label }));
-      // 切到在线引擎后，后端已按新 engine 的 keyring user 重新加载了 key；
-      // 前端也同步刷新，否则输入框还会显示上一个引擎的 key。
-      if (isOnlineEngineKey(newEngine)) {
-        try {
-          const [k, ep] = await Promise.all([
-            getOnlineAsrApiKey(),
-            getOnlineAsrEndpoint(),
-          ]);
-          setOnlineAsrApiKeyState(k || "");
-          setOnlineAsrRegion(ep.region);
-          setOnlineAsrUrl(ep.url);
-        } catch {
-          // Keep the current field values when the secure store is unavailable.
-        }
-      }
-      retryModel();
-    } catch {
-      toast.error(t("toast.switchEngineFailed"));
-    } finally {
-      setEngineLoading(false);
-    }
-  };
-
-  const handleCheckForUpdates = useCallback(async () => {
-    if (updateChecking) return;
-
-    setUpdateChecking(true);
-    setLatestAvailableVersion(null);
-    setLatestReleaseUrl(null);
-    setUpdateStatusText(t("toast.checkingGitHub"));
-
-    try {
-      const updateInfo = await checkAppUpdate();
-      setLatestReleaseUrl(updateInfo.releaseUrl ?? null);
-      if (!updateInfo.available || !updateInfo.latestVersion) {
-        setUpdateStatusText(t("toast.alreadyLatest"));
-        toast.success(t("toast.alreadyLatest"));
-        return;
-      }
-
-      setLatestAvailableVersion(updateInfo.latestVersion);
-      setUpdateStatusText(t("toast.newVersionFound", { version: updateInfo.latestVersion }));
-      toast.info(t("toast.newVersionToast", { version: updateInfo.latestVersion }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : t("toast.checkUpdateFailed");
-      setUpdateStatusText(message);
-      toast.error(message);
-    } finally {
-      setUpdateChecking(false);
-    }
-  }, [updateChecking]);
-
-  const handleOpenReleasePage = useCallback(async () => {
-    try {
-      const message = await openAppReleasePage(latestReleaseUrl);
-      toast.success(message);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : t("toast.openReleaseFailed");
-      setUpdateStatusText(message);
-      toast.error(message);
-    }
-  }, [latestReleaseUrl]);
-
-  useEffect(() => {
-    isAutostartEnabled().then(enabled => {
-      setAutostart(enabled);
-      setAutostartLoading(false);
-    }).catch(() => setAutostartLoading(false));
-  }, []);
-
-  const refreshInputDevices = useCallback(async () => {
-    setDeviceListLoading(true);
-    try {
-      const payload = await listInputDevices();
-      setInputDevices(payload.devices);
-      setSelectedInputDeviceName(payload.selectedDeviceName ?? "");
-    } catch {
-      toast.error(t("toast.micListFailed"));
-    } finally {
-      setDeviceListLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void (async () => {
-      const stored = readLocalStorage(INPUT_DEVICE_STORAGE_KEY);
-      if (stored) {
-        await setInputDevice(stored).catch(() => {});
-      }
-      await refreshInputDevices();
-    })();
-  }, [refreshInputDevices]);
-
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: null | (() => void) = null;
-
-    const startMonitor = async () => {
-      try {
-        await stopMicrophoneLevelMonitor().catch(() => undefined);
-        if (!active || !micLevelMonitorEnabled || isRecording) {
-          if (!disposed) {
-            setMicMonitorReady(false);
-            setMicLevel(0);
-          }
-          return;
-        }
-        await startMicrophoneLevelMonitor();
-        if (!disposed) setMicMonitorReady(true);
-      } catch {
-        if (!disposed) {
-          setMicMonitorReady(false);
-          setMicLevel(0);
-        }
-      }
-    };
-
-    void (async () => {
-      try {
-        unlisten = await listen<MicrophoneLevelPayload>("microphone-level", (event) => {
-          if (disposed) return;
-          const level = typeof event.payload?.level === "number" ? event.payload.level : 0;
-          setMicLevel(Math.max(0, Math.min(1, level)));
-        });
-      } catch {
-        // ignore
-      }
-
-      await startMonitor();
-
-      if (disposed && unlisten) {
-        unlisten();
-        unlisten = null;
-      }
-    })();
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-      void stopMicrophoneLevelMonitor().catch(() => undefined);
-    };
-  }, [active, isRecording, micLevelMonitorEnabled, selectedInputDeviceName]);
-
-  const handleInputDeviceChange = async (name: string) => {
-    picker.close();
-    setDeviceListLoading(true);
-    try {
-      await setInputDevice(name || null);
-      if (name) {
-        writeLocalStorage(INPUT_DEVICE_STORAGE_KEY, name);
-      } else {
-        writeLocalStorage(INPUT_DEVICE_STORAGE_KEY, "");
-      }
-      setSelectedInputDeviceName(name);
-      await refreshInputDevices();
-    } catch {
-      toast.error(t("toast.micSwitchFailed"));
-    } finally {
-      setDeviceListLoading(false);
-    }
-  };
-
-  const handleMicLevelMonitorToggle = useCallback((enabled: boolean) => {
-    setMicLevelMonitorEnabled(enabled);
-    writeLocalStorage(MIC_LEVEL_MONITOR_ENABLED_KEY, enabled ? "true" : "false");
-    if (!enabled) {
-      setMicMonitorReady(false);
-      setMicLevel(0);
-    }
-  }, []);
-
-  const handleAutostartToggle = async () => {
-    if (autostartLoading) return;
-    const prev = autostart;
-    const next = !prev;
-    // Reflect the requested state immediately, then reconcile it with the
-    // plugin's authoritative value before reporting success.
-    setAutostart(next);
-    setAutostartLoading(true);
-    try {
-      if (prev) {
-        await disableAutostart();
-      } else {
-        await enableAutostart();
-      }
-      const confirmed = await isAutostartEnabled();
-      setAutostart(confirmed);
-      if (confirmed !== next) {
-        throw new Error("Autostart state was not persisted");
-      }
-      toast.success(t(next ? "toast.autostartEnabled" : "toast.autostartDisabled"), {
-        duration: 1100,
-      });
-    } catch {
-      // A failed operation or unreadable confirmation leaves no authoritative
-      // new value, so return to the last confirmed UI state.
-      setAutostart(prev);
-      toast.error(t("toast.autostartFailed"));
-    } finally {
-      setAutostartLoading(false);
-    }
-  };
+  const {
+    deviceListLoading,
+    handleInputDeviceChange,
+    handleMicLevelMonitorToggle,
+    handleTestMicrophone,
+    inputDevices,
+    micLevel,
+    micLevelMonitorEnabled,
+    micMonitorReady,
+    refreshInputDevices,
+    selectedInputDeviceName,
+  } = useMicrophoneSettings({ active, closePicker: picker.close, isRecording });
 
   // (hotkey capture effects are now in useHotkeyCapture hook)
 
@@ -1208,185 +896,54 @@ export default function SettingsPage({
     }
   }, [picker.active]);
 
-  const refreshAiModels = useCallback(async (silent = false) => {
-    const requestId = ++aiModelsRequestIdRef.current;
-    const requestContext = polishModelsContext;
-    const apiKey = aiPolishApiKey.trim();
-    const baseUrl = customBaseUrl.trim();
-    if (!polishHasAuth) {
-      setAiModels([]);
-      setAiModelsSourceUrl("");
-      setAiModelsError(t(llmProvider === "xai" ? "settings.apiKeyOrGrokLoginMissing" : "settings.apiKeyOrLoginMissing"));
-      setAiModelsLoading(false);
-      aiModelsContextRef.current = null;
-      return;
-    }
+  const fetchPolishModels = useCallback((silent: boolean) => {
+    return listAiModels(
+      llmProvider,
+      customBaseUrl.trim() || undefined,
+      aiPolishApiKey.trim(),
+      !silent,
+      llmProvider === "openai" ? effectiveOpenaiAuthMode : undefined,
+      llmProvider === "xai" ? effectiveXaiAuthModeValue : undefined,
+    );
+  }, [aiPolishApiKey, customBaseUrl, effectiveOpenaiAuthMode, effectiveXaiAuthModeValue, llmProvider]);
 
-    setAiModelsLoading(true);
-    if (!silent) {
-      setAiModelsError("");
-    }
+  const fetchAssistantModels = useCallback((silent: boolean) => {
+    const baseUrl = assistantCustomProvider?.base_url
+      ?? findLlmPreset(effectiveAssistantProvider).baseUrl;
+    return listAiModels(
+      effectiveAssistantProvider,
+      baseUrl || undefined,
+      assistantApiKeyState.trim(),
+      !silent,
+      effectiveAssistantProvider === "openai" ? effectiveOpenaiAuthMode : undefined,
+      effectiveAssistantProvider === "xai" ? effectiveXaiAuthModeValue : undefined,
+    );
+  }, [assistantApiKeyState, assistantCustomProvider, effectiveAssistantProvider, effectiveOpenaiAuthMode, effectiveXaiAuthModeValue]);
 
-    try {
-      const payload = await listAiModels(
-        llmProvider,
-        baseUrl || undefined,
-        apiKey,
-        !silent,
-        llmProvider === "openai" ? effectiveOpenaiAuthMode : undefined,
-        llmProvider === "xai" ? effectiveXaiAuthModeValue : undefined,
-      );
-      if (requestId !== aiModelsRequestIdRef.current) return;
-      setAiModels(payload.models);
-      setAiModelsSourceUrl(payload.sourceUrl);
-      setAiModelsError(payload.models.length === 0 ? t("settings.modelListEmpty") : "");
-      aiModelsContextRef.current = requestContext;
-    } catch (err) {
-      if (requestId !== aiModelsRequestIdRef.current) return;
-      const message = err instanceof Error ? err.message : t("settings.fetchModelsFailed");
-      const canKeepCurrentModels = aiModelsContextRef.current === requestContext;
-      if (!canKeepCurrentModels) {
-        setAiModels([]);
-        setAiModelsSourceUrl("");
-        aiModelsContextRef.current = null;
-      }
-      setAiModelsError(message);
-    } finally {
-      if (requestId === aiModelsRequestIdRef.current) {
-        setAiModelsLoading(false);
-      }
-    }
-  }, [aiPolishApiKey, customBaseUrl, effectiveOpenaiAuthMode, effectiveXaiAuthModeValue, llmProvider, polishHasAuth, polishModelsContext, t]);
-
-  const aiModelsFetch = useDebouncedCallback((silent: boolean) => {
-    void refreshAiModels(silent);
-  }, 700);
-
-  // 助手独立模型列表：provider 不同时独立拉取，相同时复用润色列表
-  const refreshAssistantModels = useCallback(async (silent = false) => {
-    const requestId = ++assistantModelsRequestIdRef.current;
-    const requestContext = assistantModelsContext;
-    // 同 provider 时复用润色模型列表
-    if (effectiveAssistantProvider === llmProvider) {
-      setAssistantModels(aiModels);
-      setAssistantModelsLoading(false);
-      setAssistantModelsError("");
-      assistantModelsContextRef.current = requestContext;
-      return;
-    }
-    const apiKey = assistantApiKeyState.trim();
-    if (!assistantHasAuth) {
-      setAssistantModels([]);
-      setAssistantModelsLoading(false);
-      setAssistantModelsError("");
-      assistantModelsContextRef.current = null;
-      return;
-    }
-    // 解析助手 provider 的 base_url
-    const cp = customProviders.find((p) => p.id === effectiveAssistantProvider);
-    const baseUrl = cp ? cp.base_url : findLlmPreset(effectiveAssistantProvider).baseUrl;
-
-    setAssistantModelsLoading(true);
-    if (!silent) {
-      setAssistantModelsError("");
-    }
-    try {
-      const payload = await listAiModels(
-        effectiveAssistantProvider,
-        baseUrl || undefined,
-        apiKey,
-        !silent,
-        effectiveAssistantProvider === "openai" ? effectiveOpenaiAuthMode : undefined,
-        effectiveAssistantProvider === "xai" ? effectiveXaiAuthModeValue : undefined,
-      );
-      if (requestId !== assistantModelsRequestIdRef.current) return;
-      setAssistantModels(payload.models);
-      setAssistantModelsError(payload.models.length === 0 ? t("settings.modelListEmpty") : "");
-      assistantModelsContextRef.current = requestContext;
-    } catch (err) {
-      if (requestId !== assistantModelsRequestIdRef.current) return;
-      const message = err instanceof Error ? err.message : t("settings.fetchModelsFailed");
-      const canKeepCurrentModels = assistantModelsContextRef.current === requestContext;
-      if (!canKeepCurrentModels) {
-        setAssistantModels([]);
-        assistantModelsContextRef.current = null;
-      }
-      setAssistantModelsError(message);
-    } finally {
-      if (requestId === assistantModelsRequestIdRef.current) {
-        setAssistantModelsLoading(false);
-      }
-    }
-  }, [aiModels, assistantApiKeyState, assistantHasAuth, assistantModelsContext, customProviders, effectiveAssistantProvider, effectiveOpenaiAuthMode, effectiveXaiAuthModeValue, llmProvider, t]);
-
-  const assistantModelsFetch = useDebouncedCallback((silent: boolean) => {
-    void refreshAssistantModels(silent);
-  }, 700);
-
-  useEffect(() => {
-    if (!polishHasAuth) {
-      aiModelsFetch.cancel();
-      aiModelsRequestIdRef.current += 1;
-      aiModelsContextRef.current = null;
-      setAiModels([]);
-      setAiModelsSourceUrl("");
-      setAiModelsError("");
-      setAiModelsLoading(false);
-      return;
-    }
-
-    if (aiModelsContextRef.current !== polishModelsContext) {
-      aiModelsContextRef.current = null;
-      setAiModels([]);
-      setAiModelsSourceUrl("");
-      setAiModelsError("");
-    }
-
-    aiModelsFetch.schedule(true);
-
-    return () => {
-      aiModelsFetch.cancel();
-      aiModelsRequestIdRef.current += 1;
-    };
-  }, [aiModelsFetch, polishHasAuth, polishModelsContext]);
-
-  // 助手独立模型列表自动刷新
-  useEffect(() => {
-    if (!assistantUseSeparateModel) {
-      assistantModelsFetch.cancel();
-      assistantModelsRequestIdRef.current += 1;
-      assistantModelsContextRef.current = null;
-      setAssistantModels([]);
-      setAssistantModelsError("");
-      setAssistantModelsLoading(false);
-      return;
-    }
-    if (effectiveAssistantProvider === llmProvider) {
-      // 同 provider 时直接同步润色列表
-      setAssistantModels(aiModels);
-      assistantModelsContextRef.current = assistantModelsContext;
-      return;
-    }
-    if (!assistantHasAuth) {
-      assistantModelsFetch.cancel();
-      assistantModelsRequestIdRef.current += 1;
-      assistantModelsContextRef.current = null;
-      setAssistantModels([]);
-      setAssistantModelsLoading(false);
-      setAssistantModelsError("");
-      return;
-    }
-    if (assistantModelsContextRef.current !== assistantModelsContext) {
-      assistantModelsContextRef.current = null;
-      setAssistantModels([]);
-      setAssistantModelsError("");
-    }
-    assistantModelsFetch.schedule(true);
-    return () => {
-      assistantModelsFetch.cancel();
-      assistantModelsRequestIdRef.current += 1;
-    };
-  }, [aiModels, assistantHasAuth, assistantModelsContext, assistantModelsFetch, assistantUseSeparateModel, effectiveAssistantProvider, llmProvider]);
+  const {
+    aiModels,
+    aiModelsError,
+    aiModelsLoading,
+    aiModelsSourceUrl,
+    assistantModels,
+    assistantModelsError,
+    assistantModelsLoading,
+    invalidateModels,
+    refreshAiModels,
+    refreshAiModelsNow,
+    refreshAssistantModels,
+    refreshAssistantModelsNow,
+  } = useModelDiscovery({
+    polishModelsContext,
+    polishHasAuth,
+    polishMissingAuthMessage: t(llmProvider === "xai" ? "settings.apiKeyOrGrokLoginMissing" : "settings.apiKeyOrLoginMissing"),
+    fetchPolishModels,
+    assistantModelsContext,
+    assistantHasAuth,
+    assistantUseSeparateModel,
+    assistantSharesPolishModels: effectiveAssistantProvider === llmProvider,
+    fetchAssistantModels,
+  });
 
   const handleAddHotWord = useCallback(() => {
     const word = newHotWord.trim();
@@ -1486,28 +1043,20 @@ export default function SettingsPage({
     setGrokBuildOauthLoading(true);
     try {
       await logoutGrokBuildOauth();
-      aiModelsRequestIdRef.current += 1;
-      assistantModelsRequestIdRef.current += 1;
+      invalidateModels({
+        clearPolish: llmProvider === "xai",
+        clearAssistant: effectiveAssistantProvider === "xai",
+      });
       const status = { loggedIn: false } as GrokBuildOauthStatus;
       setGrokBuildOauthStatus(status);
       setGrokBuildOauthDeviceCode(null);
-      if (llmProvider === "xai") {
-        aiModelsContextRef.current = null;
-        setAiModels([]);
-        setAiModelsSourceUrl("");
-      }
-      if (effectiveAssistantProvider === "xai") {
-        assistantModelsContextRef.current = null;
-        setAssistantModels([]);
-        setAssistantModelsError("");
-      }
       toast.success(t("toast.grokBuildOauthLogoutSuccess"));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("toast.grokBuildOauthLogoutFailed"));
     } finally {
       setGrokBuildOauthLoading(false);
     }
-  }, [effectiveAssistantProvider, llmProvider, t]);
+  }, [effectiveAssistantProvider, invalidateModels, llmProvider, t]);
   const handleOpenaiCodexOauthLogin = useCallback(async () => {
     setOpenaiCodexOauthLoading(true);
     try {
@@ -1547,28 +1096,20 @@ export default function SettingsPage({
     setOpenaiCodexOauthLoading(true);
     try {
       await logoutOpenaiCodexOauth();
-      aiModelsRequestIdRef.current += 1;
-      assistantModelsRequestIdRef.current += 1;
+      invalidateModels({
+        clearPolish: llmProvider === "openai",
+        clearAssistant: effectiveAssistantProvider === "openai",
+      });
       const status = { loggedIn: false } as OpenaiCodexOauthStatus;
       setOpenaiCodexOauthStatus(status);
       setOpenaiCodexOauthDeviceCode(null);
-      if (llmProvider === "openai") {
-        aiModelsContextRef.current = null;
-        setAiModels([]);
-        setAiModelsSourceUrl("");
-      }
-      if (effectiveAssistantProvider === "openai") {
-        assistantModelsContextRef.current = null;
-        setAssistantModels([]);
-        setAssistantModelsError("");
-      }
       toast.success(t("toast.codexOauthLogoutSuccess"));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("toast.codexOauthLogoutFailed"));
     } finally {
       setOpenaiCodexOauthLoading(false);
     }
-  }, [effectiveAssistantProvider, llmProvider, t]);
+  }, [effectiveAssistantProvider, invalidateModels, llmProvider, t]);
   const handleOpenaiFastModeToggle = useCallback((enabled: boolean) => {
     setOpenaiFastModeState(enabled);
     setOpenaiFastMode(enabled).catch(() => {
@@ -2509,47 +2050,6 @@ export default function SettingsPage({
     webSearchConfigSave.schedule(webSearchEnabled, webSearchProvider, value);
   }, [webSearchEnabled, webSearchProvider, webSearchConfigSave]);
 
-  const handleExportConfig = useCallback(async () => {
-    try {
-      const path = await exportUserProfile();
-      if (!path) return;
-      setLastExportPath(path);
-      toast.success(t("toast.configExported"));
-    } catch {
-      toast.error(t("toast.configExportFailed"));
-    }
-  }, [t]);
-
-  const handleCopyExportPath = useCallback(async () => {
-    if (!lastExportPath) return;
-    try {
-      await copyToClipboard(lastExportPath);
-      toast.success(t("common.copiedToClipboard"));
-    } catch {
-      toast.error(t("common.copyFailed"));
-    }
-  }, [lastExportPath, t]);
-
-  const handleImportConfig = useCallback(async (json: string) => {
-    try {
-      await importUserProfile(json);
-      await refreshProfile();
-      await refreshAiPolishKey();
-      toast.success(t("toast.configImported"));
-    } catch {
-      toast.error(t("toast.configImportFailed"));
-    }
-  }, [refreshAiPolishKey, refreshProfile, t]);
-
-  const handleTestPaste = useCallback(async () => {
-    try {
-      await pasteText(t("settings.testPasteContent"), inputMethod);
-      toast.success(t("toast.pasteOk"));
-    } catch {
-      toast.error(t("toast.pasteFailed"));
-    }
-  }, [inputMethod, t]);
-
   return (
     <div className="page-root">
 
@@ -2720,35 +2220,7 @@ export default function SettingsPage({
                         type="button"
                         disabled={onlineAsrRegionLoading}
                         className={`theme-btn${onlineAsrRegion === region ? " active" : ""}`}
-                        onClick={async () => {
-                          if (onlineAsrRegionLoading || onlineAsrRegion === region) return;
-                          setOnlineAsrRegionLoading(true);
-                          // 区域切换也会换 keyring 槽（Alibaba CN / Intl），
-                          // 先把还在 debounce 里的 key 落盘到旧区域槽。
-                          try {
-                            try {
-                              await onlineAsrKeySave.flush();
-                            } catch {
-                              return;
-                            }
-                            const ep = await setOnlineAsrEndpoint(region);
-                            setOnlineAsrRegion(ep.region);
-                            setOnlineAsrUrl(ep.url);
-                            // 区域切换后，后端已按新 keyring user 重载了 key；前端同步
-                            if (engine === "alibaba-asr") {
-                              try {
-                                const k = await getOnlineAsrApiKey();
-                                setOnlineAsrApiKeyState(k || "");
-                              } catch {
-                                // Preserve the previous key display if secure storage is unavailable.
-                              }
-                            }
-                          } catch {
-                            toast.error(t("toast.onlineAsrRegionSwitchFailed"));
-                          } finally {
-                            setOnlineAsrRegionLoading(false);
-                          }
-                        }}
+                        onClick={() => { void handleOnlineAsrRegionChange(region); }}
                         style={{ flex: 1 }}
                       >
                         {t(labelKey)}
@@ -2809,14 +2281,9 @@ export default function SettingsPage({
                                 type="button"
                                 className="picker-option"
                                 data-active={alibabaAsrModel === m}
-                                onClick={async () => {
+                                onClick={() => {
                                   picker.close();
-                                  try {
-                                    await setAlibabaAsrModel(m);
-                                    setAlibabaAsrModelState(m);
-                                  } catch {
-                                    // Keep the previous model when persistence fails.
-                                  }
+                                  void handleAlibabaAsrModelSelect(m);
                                 }}
                               >
                                 <strong style={{ fontSize: 12, fontFamily: "var(--font-mono, monospace)" }}>{m}</strong>
@@ -2837,13 +2304,7 @@ export default function SettingsPage({
                       : t("settings.glmApiKeyPlaceholder")}
                     ariaLabelShow={t("settings.showApiKey")}
                     ariaLabelHide={t("settings.hideApiKey")}
-                    onChange={(value) => {
-                      setOnlineAsrApiKeyState(value);
-                      onlineAsrKeySave.schedule(
-                        value,
-                        computeOnlineAsrKeyringUser(engine, onlineAsrRegion),
-                      );
-                    }}
+                    onChange={handleOnlineAsrApiKeyChange}
                   />
                 </div>
               </div>
@@ -2858,37 +2319,7 @@ export default function SettingsPage({
                     <button
                       className="theme-btn theme-btn-xs"
                       disabled={modelsDirMigrating}
-                      onClick={async () => {
-                        try {
-                          setModelsDirMigrating(true);
-                          const result = await setModelsDir(null, false);
-                          try {
-                            const info = await getModelsDir();
-                            setModelsDirState(info.path);
-                            setModelsDirCustom(info.is_custom);
-                          } catch (refreshError) {
-                            console.error("Failed to refresh model directory after successful reset:", refreshError);
-                          }
-                           if (result.runtimeWarning) {
-                             toast.info(result.runtimeWarning);
-                           } else {
-                             toast.success(t("toast.modelsDirResetDefault"));
-                           }
-                           retryModel();
-                         } catch (e) {
-                           try {
-                             const info = await getModelsDir();
-                             setModelsDirState(info.path);
-                             setModelsDirCustom(info.is_custom);
-                           } catch (refreshError) {
-                             console.error("Failed to refresh model directory after reset error:", refreshError);
-                           }
-                           retryModel();
-                           toast.error(e instanceof Error ? e.message : t("toast.modelsDirResetFailed"));
-                        } finally {
-                          setModelsDirMigrating(false);
-                        }
-                      }}
+                      onClick={() => { void handleRestoreDefaultModelsDir(); }}
                     >
                       <RotateCcw size={11} />
                       {t("settings.restoreDefault")}
@@ -2897,40 +2328,7 @@ export default function SettingsPage({
                   <button
                     className="theme-btn theme-btn-xs"
                     disabled={modelsDirMigrating}
-                    onClick={async () => {
-                      try {
-                        const folder = await pickFolder();
-                        if (!folder) return;
-                        setModelsDirMigrating(true);
-                        const result = await setModelsDir(folder, true);
-                        try {
-                          const info = await getModelsDir();
-                          setModelsDirState(info.path);
-                          setModelsDirCustom(info.is_custom);
-                        } catch (refreshError) {
-                          console.error("Failed to refresh model directory after successful migration:", refreshError);
-                        }
-                         if (result.runtimeWarning) {
-                           toast.info(result.runtimeWarning);
-                         } else {
-                           toast.success(t("toast.modelsDirUpdated"));
-                         }
-                         retryModel();
-                       } catch (e) {
-                         try {
-                           const info = await getModelsDir();
-                           setModelsDirState(info.path);
-                           setModelsDirCustom(info.is_custom);
-                         } catch (refreshError) {
-                           console.error("Failed to refresh model directory after migration error:", refreshError);
-                          }
-                          retryModel();
-                          toast.error(e instanceof Error ? e.message : t("toast.modelsDirChangeFailed"));
-                       } finally {
-                        setModelsDirMigrating(false);
-                        setModelsMigrateMsg("");
-                      }
-                    }}
+                    onClick={() => { void handleChooseModelsDir(); }}
                   >
                     <FolderOpen size={11} />
                     {modelsDirMigrating ? (modelsMigrateMsg || t("settings.migrating")) : t("common.change")}
@@ -3148,21 +2546,7 @@ export default function SettingsPage({
                 >
                   {t("common.refresh")}
                 </button>
-                <button className="test-btn" onClick={async () => {
-                  try {
-                    setMicMonitorReady(false);
-                    setMicLevel(0);
-                    await stopMicrophoneLevelMonitor().catch(() => undefined);
-                    const msg = await testMicrophone();
-                    toast.success(msg);
-                    if (micLevelMonitorEnabled && !isRecording) {
-                      await startMicrophoneLevelMonitor();
-                      setMicMonitorReady(true);
-                    }
-                  } catch {
-                    toast.error(t("toast.micTestFailed"));
-                  }
-                }}>{t("common.test")}</button>
+                <button className="test-btn" onClick={() => { void handleTestMicrophone(); }}>{t("common.test")}</button>
               </div>
               <div className="mic-level-shell" aria-label={t("settings.micLevelPreview")}>
                 <div className="mic-level-fill" style={{ width: `${Math.round(micLevel * 100)}%` }} />
@@ -3661,8 +3045,7 @@ export default function SettingsPage({
                             type="button"
                             className="btn-ghost btn-ghost-sm"
                             onClick={() => {
-                              aiModelsFetch.cancel();
-                              void refreshAiModels();
+                              void refreshAiModelsNow();
                             }}
                             disabled={aiModelsLoading}
                             style={{ opacity: aiModelsLoading ? 0.7 : 1 }}
@@ -4021,11 +3404,9 @@ export default function SettingsPage({
                             className="btn-ghost btn-ghost-sm"
                             onClick={() => {
                               if (assistantProviderDiffers) {
-                                assistantModelsFetch.cancel();
-                                void refreshAssistantModels();
+                                void refreshAssistantModelsNow();
                               } else {
-                                aiModelsFetch.cancel();
-                                void refreshAiModels();
+                                void refreshAiModelsNow();
                               }
                             }}
                             disabled={assistantProviderDiffers ? assistantModelsLoading : aiModelsLoading}

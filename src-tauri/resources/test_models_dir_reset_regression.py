@@ -4,7 +4,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FUNASR_COMMANDS = REPO_ROOT / "src-tauri" / "src" / "commands" / "funasr.rs"
-SETTINGS_PAGE = REPO_ROOT / "src" / "pages" / "SettingsPage.tsx"
+MODEL_DIRECTORY_HOOK = REPO_ROOT / "src" / "hooks" / "useModelDirectorySettings.ts"
 
 
 def extract_braced_block(source: str, opening_brace: int) -> str:
@@ -60,9 +60,9 @@ class ModelDirResetLifecycleRegressionTests(unittest.TestCase):
         function_brace = rust_source.index("{", function_start)
         function_block = extract_braced_block(rust_source, function_brace)
 
-        settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
-        frontend_reset = settings_source.index("await setModelsDir(null, false);")
-        frontend_reset_block = settings_source[frontend_reset : frontend_reset + 800]
+        hook_source = MODEL_DIRECTORY_HOOK.read_text(encoding="utf-8")
+        frontend_reset = hook_source.index("await setModelsDir(null, false);")
+        frontend_reset_block = hook_source[frontend_reset : frontend_reset + 800]
 
         backend_owns_reload = (
             "funasr_service::stop_server" in function_block

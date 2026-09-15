@@ -15,6 +15,7 @@ use crate::services::codex_oauth_service::OpenaiCodexOauthSession;
 use crate::services::grok_build_oauth_service::GrokBuildOauthSession;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum RecordingMode {
     Dictation,
@@ -22,6 +23,7 @@ pub enum RecordingMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum RecordingPhase {
     Idle,
@@ -32,6 +34,7 @@ pub enum RecordingPhase {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum RecordingOutcomeKind {
     TooShort,
@@ -42,6 +45,7 @@ pub enum RecordingOutcomeKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RecordingSnapshot {
     pub session_id: u64,
@@ -49,8 +53,10 @@ pub struct RecordingSnapshot {
     pub phase: RecordingPhase,
     pub mode: RecordingMode,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub outcome: Option<RecordingOutcomeKind>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub detail: Option<String>,
 }
 

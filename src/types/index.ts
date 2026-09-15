@@ -1,3 +1,7 @@
+import type { RecordingMode } from "./generated/ipc";
+
+export type { InputDeviceInfo, InputDeviceListPayload, RecordingMode } from "./generated/ipc";
+
 // 与 Rust 后端 funasr_service::TranscriptionResult 对应
 export interface TranscriptionResult {
   text: string;
@@ -6,7 +10,6 @@ export interface TranscriptionResult {
   error?: string;
 }
 
-export type RecordingMode = "dictation" | "assistant";
 export type EditGrabStatus = "ok" | "timeout" | "empty" | "unsupported";
 
 export interface TranscriptionTiming {
@@ -49,16 +52,6 @@ export interface HistoryItem {
   timeDisplay: string;
   editGrabStatus?: EditGrabStatus;
   timing?: TranscriptionTiming;
-}
-
-export interface InputDeviceInfo {
-  name: string;
-  isDefault: boolean;
-}
-
-export interface InputDeviceListPayload {
-  devices: InputDeviceInfo[];
-  selectedDeviceName?: string | null;
 }
 
 export interface AppUpdateInfo {

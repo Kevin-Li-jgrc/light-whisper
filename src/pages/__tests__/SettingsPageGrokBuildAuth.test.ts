@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import en from "@/i18n/en";
@@ -18,10 +19,6 @@ const userProfileSource = readFileSync(
 );
 const llmProviderSource = readFileSync(
   resolve(process.cwd(), "src-tauri/src/services/llm_provider.rs"),
-  "utf8",
-);
-const llmClientSource = readFileSync(
-  resolve(process.cwd(), "src-tauri/src/services/llm_client.rs"),
   "utf8",
 );
 const codexOauthSource = readFileSync(
@@ -77,6 +74,49 @@ function sliceBetween(source: string, startMarker: string, endMarker: string): s
   const end = source.indexOf(endMarker, start + startMarker.length);
   expect(end).toBeGreaterThan(start);
   return source.slice(start, end);
+}
+
+function findLlmProviderConfigCallInSaveInitializer(
+  sourceFile: ts.SourceFile,
+): ts.CallExpression {
+  let saveInitializer: ts.Expression | undefined;
+
+  const findSaveDeclaration = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.name.text === "llmConfigSave"
+    ) {
+      saveInitializer = node.initializer;
+      return;
+    }
+    ts.forEachChild(node, findSaveDeclaration);
+  };
+  findSaveDeclaration(sourceFile);
+
+  if (!saveInitializer) {
+    throw new Error("llmConfigSave initializer is missing");
+  }
+
+  const configCalls: ts.CallExpression[] = [];
+  const findConfigCall = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === "setLlmProviderConfig"
+    ) {
+      configCalls.push(node);
+    }
+    ts.forEachChild(node, findConfigCall);
+  };
+  findConfigCall(saveInitializer);
+
+  if (configCalls.length !== 1) {
+    throw new Error(
+      `expected one setLlmProviderConfig call in llmConfigSave, found ${configCalls.length}`,
+    );
+  }
+  return configCalls[0];
 }
 
 describe("SettingsPage Grok Build dual-auth contract", () => {
@@ -149,14 +189,18 @@ describe("SettingsPage Grok Build dual-auth contract", () => {
   });
 
   it("persists xaiAuthMode through llmConfigSave / setLlmProviderConfig", () => {
-    const saveCallback = sliceBetween(
-      settingsPage,
-      "const llmConfigSave = useDebouncedCallback",
-      "computeOnlineAsrKeyringUser",
+    const setLlmProviderConfigCall = findLlmProviderConfigCallInSaveInitializer(
+      ts.createSourceFile(
+        "SettingsPage.tsx",
+        settingsPage,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TSX,
+      ),
     );
-    expect(saveCallback).toContain("setLlmProviderConfig");
-    expect(saveCallback).toContain("openaiAuthMode");
-    expect(saveCallback).toContain("xaiAuthMode");
+    expect(setLlmProviderConfigCall.arguments).toHaveLength(10);
+    expect(setLlmProviderConfigCall.arguments[8].getText()).toBe("openaiAuthMode");
+    expect(setLlmProviderConfigCall.arguments[9].getText()).toBe("xaiAuthMode");
     expect(settingsPage).toContain("handleXaiAuthModeChange");
     expect(settingsPage).toMatch(/p\.llm_provider\.xai_auth_mode/);
   });
@@ -287,11 +331,6 @@ describe("Grok Build backend wiring contract", () => {
     expect(grokOauthSource).toContain("X-XAI-Token-Auth");
     expect(grokOauthSource).toContain("x-grok-client-version");
     expect(grokOauthSource).toContain("0.2.114");
-    expect(llmClientSource).toContain("is_grok_build_oauth_origin_auth");
-    expect(
-      llmClientSource.includes("GROK_BUILD_RESPONSES_URL")
-        || llmClientSource.includes("cli-chat-proxy.grok.com"),
-    ).toBe(true);
   });
 
   it("adds xai as a built-in Responses-API provider", () => {

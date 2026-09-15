@@ -48,6 +48,7 @@ pub(crate) const MICROPHONE_LEVEL_EMIT_INTERVAL_MS: u64 = 70;
 pub(crate) const EDIT_GRAB_WAIT_MS: u64 = 650;
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct InputDeviceInfo {
     pub name: String,
@@ -55,6 +56,7 @@ pub struct InputDeviceInfo {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct InputDeviceListPayload {
     pub devices: Vec<InputDeviceInfo>,

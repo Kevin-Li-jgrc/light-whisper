@@ -1749,3 +1749,196 @@ fn known_deepseek_openai_compatible_endpoint_keeps_native_reasoning_path() {
         "known providers keep their native reasoning path and skip the generic OpenAI-compatible probe"
     );
 }
+
+fn streaming_test_endpoint(api_format: ApiFormat, provider: &str) -> LlmEndpoint {
+    LlmEndpoint {
+        provider: provider.to_string(),
+        api_url: "http://127.0.0.1/stream".to_string(),
+        model: "test-stream-model".to_string(),
+        timeout_secs: 5,
+        api_format,
+    }
+}
+
+async fn spawn_sse_response_server(body: &str) -> (String, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("SSE server should bind");
+    let address = listener
+        .local_addr()
+        .expect("SSE server should have a local address");
+    let body = body.to_string();
+
+    let handle = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("SSE client should connect");
+        let mut request = [0_u8; 2048];
+        let _ = stream.read(&mut request).await;
+        let headers = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream
+            .write_all(headers.as_bytes())
+            .await
+            .expect("SSE response headers should be writable");
+        stream
+            .write_all(body.as_bytes())
+            .await
+            .expect("SSE response body should be writable");
+    });
+
+    (format!("http://{address}/stream"), handle)
+}
+
+async fn open_sse_response(body: &str) -> (reqwest::Response, tokio::task::JoinHandle<()>) {
+    let (url, server) = spawn_sse_response_server(body).await;
+    let response = reqwest::Client::new()
+        .get(url)
+        .send()
+        .await
+        .expect("SSE request should reach the local server");
+    (response, server)
+}
+
+#[tokio::test]
+async fn chat_sse_loopback_accumulates_content_until_done() {
+    let body = concat!(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n",
+        "data: [DONE]\n\n",
+    );
+    let (response, server) = open_sse_response(body).await;
+    let result = llm_client::read_sse_stream(
+        &streaming_test_endpoint(ApiFormat::OpenaiCompat, "test-chat"),
+        response,
+        None,
+        None,
+        None,
+        None,
+        std::time::Duration::from_secs(5),
+    )
+    .await;
+    server.await.expect("SSE server should finish");
+
+    assert_eq!(result.as_deref(), Ok("hello"));
+}
+
+#[tokio::test]
+async fn chat_sse_loopback_surfaces_provider_error() {
+    let body = "data: {\"error\":{\"message\":\"chat provider failed\"}}\n\n";
+    let (response, server) = open_sse_response(body).await;
+    let result = llm_client::read_sse_stream(
+        &streaming_test_endpoint(ApiFormat::OpenaiCompat, "test-chat"),
+        response,
+        None,
+        None,
+        None,
+        None,
+        std::time::Duration::from_secs(5),
+    )
+    .await;
+    server.await.expect("SSE server should finish");
+
+    assert_eq!(
+        result.expect_err("provider SSE errors must fail the request"),
+        "OpenAI 流式错误: chat provider failed"
+    );
+}
+
+#[tokio::test]
+async fn responses_sse_loopback_accumulates_delta_content() {
+    let body = concat!(
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hel\"}\n\n",
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"lo\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]}]}}\n\n",
+    );
+    let (response, server) = open_sse_response(body).await;
+    let result = llm_client::read_openai_responses_sse_stream(
+        response,
+        &streaming_test_endpoint(ApiFormat::OpenaiCompat, "test-responses"),
+        None,
+        None,
+        None,
+        None,
+        std::time::Duration::from_secs(5),
+    )
+    .await;
+    server.await.expect("SSE server should finish");
+
+    assert_eq!(result.as_deref(), Ok("hello"));
+}
+
+#[tokio::test]
+async fn responses_sse_loopback_surfaces_failed_response() {
+    let body = "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"responses provider failed\"}}}\n\n";
+    let (response, server) = open_sse_response(body).await;
+    let result = llm_client::read_openai_responses_sse_stream(
+        response,
+        &streaming_test_endpoint(ApiFormat::OpenaiCompat, "test-responses"),
+        None,
+        None,
+        None,
+        None,
+        std::time::Duration::from_secs(5),
+    )
+    .await;
+    server.await.expect("SSE server should finish");
+
+    assert_eq!(
+        result.expect_err("failed Responses events must fail the request"),
+        "Responses 流式错误: responses provider failed"
+    );
+}
+
+#[tokio::test]
+async fn anthropic_sse_loopback_accumulates_content_until_stop() {
+    let body = concat!(
+        "event: message_start\n",
+        "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"output_tokens\":0}}}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hel\"}}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n",
+        "event: message_stop\n",
+        "data: {\"type\":\"message_stop\"}\n\n",
+    );
+    let (response, server) = open_sse_response(body).await;
+    let result = llm_client::read_anthropic_sse_stream(
+        &streaming_test_endpoint(ApiFormat::Anthropic, "test-anthropic"),
+        response,
+        None,
+        None,
+        None,
+        None,
+        std::time::Duration::from_secs(5),
+    )
+    .await;
+    server.await.expect("SSE server should finish");
+
+    assert_eq!(result.as_deref(), Ok("hello"));
+}
+
+#[tokio::test]
+async fn anthropic_sse_loopback_surfaces_error_event() {
+    let body = concat!(
+        "event: error\n",
+        "data: {\"type\":\"error\",\"error\":{\"message\":\"anthropic provider failed\"}}\n\n",
+    );
+    let (response, server) = open_sse_response(body).await;
+    let result = llm_client::read_anthropic_sse_stream(
+        &streaming_test_endpoint(ApiFormat::Anthropic, "test-anthropic"),
+        response,
+        None,
+        None,
+        None,
+        None,
+        std::time::Duration::from_secs(5),
+    )
+    .await;
+    server.await.expect("SSE server should finish");
+
+    assert_eq!(
+        result.expect_err("Anthropic error events must fail the request"),
+        "Anthropic 流式错误: anthropic provider failed"
+    );
+}

@@ -27,29 +27,15 @@ import type {
   PersistentHistoryRecord,
   PersistentHistoryStats,
   PolishStructureLevel,
-  RecordingMode,
   TranscriptionResult,
   UserProfile,
   WebSearchProvider,
 } from "@/types";
+import type { RecordingSnapshot } from "@/types/generated/ipc";
 
 type InvokeArgs = Record<string, unknown>;
 
-export type RecordingOutcomeKind =
-  | "too_short"
-  | "no_speech"
-  | "asr_error"
-  | "processing_error"
-  | "start_error";
-
-export interface RecordingSnapshot {
-  sessionId: number;
-  revision: number;
-  phase: "idle" | "starting" | "recording" | "processing" | "outcome";
-  mode: RecordingMode;
-  outcome?: RecordingOutcomeKind;
-  detail?: string;
-}
+export type { RecordingOutcomeKind, RecordingSnapshot } from "@/types/generated/ipc";
 
 export class IpcError extends Error {
   readonly code: string;

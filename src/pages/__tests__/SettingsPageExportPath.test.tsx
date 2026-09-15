@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { UserProfile } from "@/types";
+import type { AppUpdateInfo, UserProfile } from "@/types";
 
 const tauriMock = vi.hoisted(() => ({
   addCustomProvider: vi.fn(),
@@ -94,6 +94,7 @@ const storageMock = vi.hoisted(() => ({
 
 const toastMock = vi.hoisted(() => ({
   error: vi.fn(),
+  info: vi.fn(),
   success: vi.fn(),
 }));
 
@@ -135,6 +136,8 @@ vi.mock("sonner", () => ({
 }));
 
 const labels: Record<string, string> = {
+  "common.copyFailed": "Copy failed",
+  "common.copiedToClipboard": "Copied to clipboard",
   "common.close": "Close",
   "common.copy": "Copy",
   "settings.addHotWordLabel": "Add hot word",
@@ -147,16 +150,39 @@ const labels: Record<string, string> = {
   "settings.exportPath": "Export path",
   "settings.historySettings": "History settings",
   "settings.importConfig": "Import Config",
+  "settings.checkAppUpdate": "Check for Updates",
+  "settings.checkUpdate": "Check for Updates",
+  "settings.checking": "Checking...",
+  "settings.currentVersion": "Current version v{{version}}",
+  "settings.goToDownload": "Go to Download",
+  "settings.newVersionAvailable": "New version v{{version}} available",
+  "settings.update": "Update",
+  "settings.updateSource": "Source: GitHub Releases",
   "settings.startup": "Startup",
   "settings.autostart": "Launch at Login",
   "settings.webSearchMaxResults": "Search result count",
+  "toast.alreadyLatest": "Already up to date",
+  "toast.checkingGitHub": "Checking GitHub Release...",
+  "toast.checkUpdateFailed": "Update check failed",
+  "toast.configExported": "Config exported",
+  "toast.configExportFailed": "Export failed",
+  "toast.newVersionFound": "New version v{{version}} available. Download from GitHub.",
+  "toast.newVersionToast": "New version v{{version}} available",
+  "toast.openReleaseFailed": "Failed to open download page",
 };
+
+function translate(key: string, options?: { version?: string | number }) {
+  const template = labels[key] ?? key;
+  return options?.version === undefined
+    ? template
+    : template.replace("{{version}}", String(options.version));
+}
 
 vi.mock("@/i18n", () => ({
   default: {
     changeLanguage: vi.fn(),
     language: "en",
-    t: (key: string) => labels[key] ?? key,
+    t: translate,
   },
 }));
 
@@ -168,7 +194,7 @@ vi.mock("react-i18next", () => {
     },
     useTranslation: () => ({
       i18n: { changeLanguage: vi.fn(), language: "en" },
-      t: (key: string) => labels[key] ?? key,
+      t: translate,
     }),
   };
 });
@@ -274,6 +300,7 @@ beforeEach(() => {
   storageMock.readLocalStorage.mockReturnValue(null);
   storageMock.writeLocalStorage.mockReset();
   toastMock.error.mockReset();
+  toastMock.info.mockReset();
   toastMock.success.mockReset();
 
   Object.defineProperty(window, "IntersectionObserver", {
@@ -418,9 +445,201 @@ describe("SettingsPage config export path", () => {
       expect(tauriMock.copyToClipboard).toHaveBeenCalledWith(exportPath);
     });
   });
+
+  it("keeps the export path hidden when the native export is cancelled", async () => {
+    tauriMock.exportUserProfile.mockResolvedValueOnce(null);
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Export Config" }));
+
+    await waitFor(() => expect(tauriMock.exportUserProfile).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Export path")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy export path" })).not.toBeInTheDocument();
+    expect(toastMock.success).not.toHaveBeenCalledWith("Config exported");
+  });
+
+  it("reports an export failure without leaving a stale path or success toast", async () => {
+    tauriMock.exportUserProfile.mockRejectedValueOnce(new Error("export failed"));
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Export Config" }));
+
+    await waitFor(() => {
+      expect(tauriMock.exportUserProfile).toHaveBeenCalledTimes(1);
+      expect(toastMock.error).toHaveBeenCalledWith("Export failed");
+    });
+    expect(screen.queryByText("Export path")).not.toBeInTheDocument();
+    expect(toastMock.success).not.toHaveBeenCalledWith("Config exported");
+  });
+
+  it("reports a copy failure after an export path has been shown", async () => {
+    const exportPath = "C:\\Users\\sun\\Downloads\\light-whisper-profile.json";
+    tauriMock.exportUserProfile.mockResolvedValueOnce(exportPath);
+    tauriMock.copyToClipboard.mockRejectedValueOnce(new Error("copy failed"));
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Export Config" }));
+    expect(await screen.findByText(exportPath)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy export path" }));
+
+    await waitFor(() => {
+      expect(tauriMock.copyToClipboard).toHaveBeenCalledWith(exportPath);
+      expect(toastMock.error).toHaveBeenCalledWith("Copy failed");
+    });
+    expect(toastMock.success).toHaveBeenCalledWith("Config exported");
+    expect(toastMock.success).not.toHaveBeenCalledWith("Copied to clipboard");
+  });
+});
+
+describe("SettingsPage app updates", () => {
+  it("reports when the installed version is already current", async () => {
+    const updateInfo: AppUpdateInfo = {
+      available: false,
+      currentVersion: "1.5.9",
+      latestVersion: null,
+      releaseUrl: null,
+    };
+    tauriMock.checkAppUpdate.mockResolvedValueOnce(updateInfo);
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    expect(await screen.findByText("Current version v1.3.10")).toBeInTheDocument();
+    const action = await screen.findByRole("button", { name: "Check for Updates" });
+    fireEvent.click(action);
+
+    await waitFor(() => {
+      expect(tauriMock.checkAppUpdate).toHaveBeenCalledTimes(1);
+      expect(screen.getByText("Already up to date")).toBeInTheDocument();
+      expect(toastMock.success).toHaveBeenCalledWith("Already up to date");
+      expect(action).not.toBeDisabled();
+    });
+    expect(screen.queryByRole("button", { name: "Go to Download" })).not.toBeInTheDocument();
+  });
+
+  it("shows an available version and opens its release page on the follow-up action", async () => {
+    const releaseUrl = "https://github.com/sypsyp97/light-whisper/releases/tag/v1.6.0";
+    const updateInfo: AppUpdateInfo = {
+      available: true,
+      currentVersion: "1.5.9",
+      latestVersion: "1.6.0",
+      releaseUrl,
+    };
+    tauriMock.checkAppUpdate.mockResolvedValueOnce(updateInfo);
+    tauriMock.openAppReleasePage.mockResolvedValueOnce("Opened download page");
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Check for Updates" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("New version v1.6.0 available")).toBeInTheDocument();
+      expect(screen.getByText("New version v1.6.0 available. Download from GitHub.")).toBeInTheDocument();
+      expect(toastMock.info).toHaveBeenCalledWith("New version v1.6.0 available");
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Go to Download" }));
+
+    await waitFor(() => {
+      expect(tauriMock.openAppReleasePage).toHaveBeenCalledWith(releaseUrl);
+      expect(toastMock.success).toHaveBeenCalledWith("Opened download page");
+    });
+  });
+
+  it("keeps the update action disabled during a pending check and ignores a repeated click", async () => {
+    let resolveCheck!: (value: AppUpdateInfo) => void;
+    const checkPending = new Promise<AppUpdateInfo>((resolve) => {
+      resolveCheck = resolve;
+    });
+    tauriMock.checkAppUpdate.mockReturnValueOnce(checkPending);
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    const action = await screen.findByRole("button", { name: "Check for Updates" });
+    fireEvent.click(action);
+
+    await waitFor(() => {
+      expect(action).toBeDisabled();
+      expect(action).toHaveTextContent("Checking...");
+    });
+    fireEvent.click(action);
+    expect(tauriMock.checkAppUpdate).toHaveBeenCalledTimes(1);
+
+    resolveCheck({
+      available: false,
+      currentVersion: "1.5.9",
+      latestVersion: null,
+      releaseUrl: null,
+    });
+    await waitFor(() => {
+      expect(action).not.toBeDisabled();
+      expect(action).toHaveTextContent("Check for Updates");
+    });
+  });
+
+  it("reports a release-page failure after a new version has been found", async () => {
+    tauriMock.checkAppUpdate.mockResolvedValueOnce({
+      available: true,
+      currentVersion: "1.5.9",
+      latestVersion: "1.6.0",
+      releaseUrl: "https://github.com/sypsyp97/light-whisper/releases/tag/v1.6.0",
+    } satisfies AppUpdateInfo);
+    tauriMock.openAppReleasePage.mockRejectedValueOnce(new Error("browser unavailable"));
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Check for Updates" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Go to Download" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("browser unavailable")).toBeInTheDocument();
+      expect(toastMock.error).toHaveBeenCalledWith("browser unavailable");
+    });
+  });
+
+  it("shows the backend error when checking for an update fails", async () => {
+    tauriMock.checkAppUpdate.mockRejectedValueOnce(new Error("GitHub unavailable"));
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    const action = await screen.findByRole("button", { name: "Check for Updates" });
+    fireEvent.click(action);
+
+    await waitFor(() => {
+      expect(screen.getByText("GitHub unavailable")).toBeInTheDocument();
+      expect(toastMock.error).toHaveBeenCalledWith("GitHub unavailable");
+      expect(action).not.toBeDisabled();
+    });
+  });
 });
 
 describe("SettingsPage autostart", () => {
+  it("leaves the switch off and usable when the initial state cannot be read", async () => {
+    tauriMock.isAutostartEnabled.mockRejectedValueOnce(new Error("autostart unavailable"));
+
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+
+    const toggle = await screen.findByRole("switch", { name: "Launch at Login" });
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      expect(toggle).toHaveAttribute("aria-busy", "false");
+      expect(toggle).not.toBeDisabled();
+    });
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
   it("confirms the persisted plugin state and renders the enabled switch", async () => {
     tauriMock.isAutostartEnabled
       .mockReset()

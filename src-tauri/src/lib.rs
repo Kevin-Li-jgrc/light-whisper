@@ -3,6 +3,9 @@ mod services;
 mod state;
 mod utils;
 
+#[cfg(test)]
+mod ipc_dto_contract_tests;
+
 use state::{AppState, RecordingSlot};
 use tauri::{Emitter, Manager};
 

@@ -11,6 +11,10 @@ export default defineConfig(async () => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    target: ["es2020", "edge88", "firefox78", "chrome87", "safari14"],
+    cssTarget: ["es2020", "edge88", "firefox78", "chrome87", "safari14"],
+  },
   clearScreen: false,
   server: {
     port: 1422,
