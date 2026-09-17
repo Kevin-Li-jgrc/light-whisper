@@ -1,4 +1,5 @@
 use crate::utils::AppError;
+use tauri::Manager;
 
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
@@ -291,6 +292,16 @@ pub async fn paste_text(
 }
 
 pub async fn paste_text_impl(
+    app_handle: &tauri::AppHandle,
+    text: &str,
+    method: &str,
+) -> Result<String, AppError> {
+    let state = app_handle.state::<crate::state::AppState>();
+    let _output = state.recording.reinsert.output_lock.lock().await;
+    paste_text_unlocked(app_handle, text, method).await
+}
+
+pub(super) async fn paste_text_unlocked(
     app_handle: &tauri::AppHandle,
     text: &str,
     method: &str,

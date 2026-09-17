@@ -973,3 +973,18 @@ body,
   color: var(--color-text-primary);
   cursor: pointer;
 }
+.reinsert-notice {
+  position: fixed;
+  left: 50%;
+  top: 32px;
+  transform: translateX(-50%);
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 12px 20px;
+  border-radius: 12px;
+  color: #fff;
+  background: rgba(25, 28, 34, 0.95);
+  font-size: 14px;
+  line-height: 1.6;
+  pointer-events: none;
+  z-index: 100;
+}

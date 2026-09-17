@@ -33,9 +33,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 mod dispatch;
+pub mod reinsert;
 #[cfg(test)]
 use dispatch::is_ignorable_start_audio_error;
 use dispatch::{dispatch_hotkey_press, dispatch_hotkey_release, handle_hotkey_stop};
+pub(crate) use reinsert::register_reinsert_hotkey_inner;
 
 const HOTKEY_REPRESS_DEBOUNCE_MS: u64 = 180;
 
@@ -96,19 +98,26 @@ fn dispatch_channel() -> &'static std::sync::mpsc::Sender<DispatchEvent> {
                 for event in rx {
                     match event {
                         DispatchEvent::Press(state, msg) => {
+                            if state.trigger.is_none() {
+                                reinsert::handle_press(state);
+                                continue;
+                            }
                             dispatch_hotkey_press(
                                 &state.app_handle,
                                 &state.gate,
-                                state.trigger,
+                                state.trigger.expect("recording hotkey"),
                                 &msg,
                                 state.spec.label(),
                             );
                         }
                         DispatchEvent::Release(state, msg) => {
+                            if state.trigger.is_none() {
+                                continue;
+                            }
                             dispatch_hotkey_release(
                                 &state.app_handle,
                                 &state.gate,
-                                state.trigger,
+                                state.trigger.expect("recording hotkey"),
                                 &msg,
                                 state.spec.label(),
                             );
@@ -449,6 +458,7 @@ fn hotkey_kind_label(kind: HotkeyKind) -> &'static str {
         HotkeyKind::Dictation => "说话",
         HotkeyKind::Translation => "翻译",
         HotkeyKind::Assistant => "助手",
+        HotkeyKind::Reinsert => "补输入上一段",
     }
 }
 
@@ -467,12 +477,18 @@ fn ensure_hotkey_not_conflicting(
             (HotkeyKind::Dictation, guard.dictation.as_ref()),
             (HotkeyKind::Translation, guard.translation.as_ref()),
             (HotkeyKind::Assistant, guard.assistant.as_ref()),
+            (HotkeyKind::Reinsert, guard.reinsert.as_ref()),
         ] {
             if other_kind == kind {
                 continue;
             }
             if let Some(state) = state {
-                if state.spec.label() == candidate_label {
+                let reinsert_overlap = (kind == HotkeyKind::Reinsert
+                    || other_kind == HotkeyKind::Reinsert)
+                    && normalize_shortcut(candidate_label).is_ok_and(|candidate| {
+                        reinsert::shortcuts_overlap(&candidate, &state.spec)
+                    });
+                if state.spec.label() == candidate_label || reinsert_overlap {
                     return Err(AppError::Other(format!(
                         "快捷键 {} 已被{}热键占用，请使用不同的组合键",
                         candidate_label,
@@ -509,12 +525,12 @@ where
 
 fn update_hotkey_diagnostic_for_trigger<F>(
     app_handle: &tauri::AppHandle,
-    trigger: RecordingTrigger,
+    trigger: impl Into<Option<RecordingTrigger>>,
     update: F,
 ) where
     F: FnOnce(&mut crate::state::HotkeyDiagnosticState),
 {
-    if trigger == RecordingTrigger::DictationOriginal {
+    if trigger.into() == Some(RecordingTrigger::DictationOriginal) {
         update_hotkey_diagnostic(app_handle, update);
     }
 }
@@ -527,7 +543,7 @@ fn update_hotkey_diagnostic_for_trigger<F>(
 struct UnifiedHookState {
     app_handle: tauri::AppHandle,
     spec: HotkeySpec,
-    trigger: RecordingTrigger,
+    trigger: Option<RecordingTrigger>,
     gate: HotkeyEventGate,
     backend: HotkeyBackend,
     /// Per-VK key-down tracking for modifier-only mode
@@ -546,12 +562,16 @@ struct UnifiedHookBundle {
     dictation: Option<Arc<UnifiedHookState>>,
     translation: Option<Arc<UnifiedHookState>>,
     assistant: Option<Arc<UnifiedHookState>>,
+    reinsert: Option<Arc<UnifiedHookState>>,
 }
 
 #[cfg(target_os = "windows")]
 impl UnifiedHookBundle {
     fn is_empty(&self) -> bool {
-        self.dictation.is_none() && self.translation.is_none() && self.assistant.is_none()
+        self.dictation.is_none()
+            && self.translation.is_none()
+            && self.assistant.is_none()
+            && self.reinsert.is_none()
     }
 }
 
@@ -560,6 +580,7 @@ enum HotkeyKind {
     Dictation,
     Translation,
     Assistant,
+    Reinsert,
 }
 
 #[cfg(target_os = "windows")]
@@ -592,6 +613,7 @@ fn set_unified_hook_state(
         HotkeyKind::Dictation => &mut guard.dictation,
         HotkeyKind::Translation => &mut guard.translation,
         HotkeyKind::Assistant => &mut guard.assistant,
+        HotkeyKind::Reinsert => &mut guard.reinsert,
     };
     let previous = std::mem::replace(slot, state);
     publish_unified_hook_state_snapshot(&guard);
@@ -743,6 +765,7 @@ unsafe extern "system" fn unified_low_level_keyboard_proc(
         bundle.dictation.as_ref(),
         bundle.translation.as_ref(),
         bundle.assistant.as_ref(),
+        bundle.reinsert.as_ref(),
     ]
     .into_iter()
     .flatten()
@@ -1009,6 +1032,7 @@ fn hotkey_kind_to_reg_id(kind: HotkeyKind) -> i32 {
         HotkeyKind::Dictation => 1,
         HotkeyKind::Translation => 2,
         HotkeyKind::Assistant => 3,
+        HotkeyKind::Reinsert => 4,
     }
 }
 
@@ -1360,13 +1384,15 @@ fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), Ap
 #[cfg(target_os = "windows")]
 fn force_release_hotkey(state: &UnifiedHookState) {
     let label = state.spec.label();
-    dispatch_hotkey_release(
-        &state.app_handle,
-        &state.gate,
-        state.trigger,
-        &format!("{} 监听结束，补发松开事件", label),
-        label,
-    );
+    if let Some(trigger) = state.trigger {
+        dispatch_hotkey_release(
+            &state.app_handle,
+            &state.gate,
+            trigger,
+            &format!("{} 监听结束，补发松开事件", label),
+            label,
+        );
+    }
     reset_hotkey_event_gate(&state.gate);
 }
 
@@ -1381,16 +1407,21 @@ fn ensure_unified_hotkey_monitor(_app_handle: tauri::AppHandle) -> Result<(), Ap
 fn build_hook_state(
     app_handle: tauri::AppHandle,
     spec: HotkeySpec,
-    trigger: RecordingTrigger,
+    trigger: impl Into<Option<RecordingTrigger>>,
 ) -> Arc<UnifiedHookState> {
-    let backend = classify_backend(&spec);
+    let trigger = trigger.into();
+    let backend = if trigger.is_some() {
+        classify_backend(&spec)
+    } else {
+        reinsert::classify_backend(&spec)
+    };
     build_hook_state_with_backend(app_handle, spec, trigger, backend)
 }
 
 fn build_hook_state_with_backend(
     app_handle: tauri::AppHandle,
     spec: HotkeySpec,
-    trigger: RecordingTrigger,
+    trigger: impl Into<Option<RecordingTrigger>>,
     backend: HotkeyBackend,
 ) -> Arc<UnifiedHookState> {
     let key_down_count = match &spec {
@@ -1404,7 +1435,7 @@ fn build_hook_state_with_backend(
         app_handle,
         backend,
         spec,
-        trigger,
+        trigger: trigger.into(),
         gate: HotkeyEventGate::default(),
         key_down: (0..key_down_count)
             .map(|_| AtomicBool::new(false))
@@ -1426,6 +1457,7 @@ fn sync_hotkey_monitor_lifecycle(app_handle: tauri::AppHandle) -> Result<(), App
             guard.dictation.as_ref(),
             guard.translation.as_ref(),
             guard.assistant.as_ref(),
+            guard.reinsert.as_ref(),
         ]
         .iter()
         .flatten()
@@ -1800,9 +1832,6 @@ pub(crate) fn register_translation_hotkey_inner(
 
     #[cfg(target_os = "windows")]
     {
-        // Unregister from previous backend first
-        unregister_via_reg_hotkey(HotkeyKind::Translation);
-
         let next_state = if let Some(shortcut) = shortcut {
             let spec = normalize_shortcut(&shortcut)?;
             ensure_hotkey_not_conflicting(&app_handle, HotkeyKind::Translation, spec.label())?;
@@ -1815,6 +1844,8 @@ pub(crate) fn register_translation_hotkey_inner(
             None
         };
 
+        // 验证通过后再注销，避免与补输入热键冲突时丢失原绑定。
+        unregister_via_reg_hotkey(HotkeyKind::Translation);
         let previous_state = set_unified_hook_state(HotkeyKind::Translation, next_state.clone());
 
         if let Some(previous) = previous_state.as_ref() {
@@ -1865,9 +1896,6 @@ pub(crate) fn register_assistant_hotkey_inner(
 
     #[cfg(target_os = "windows")]
     {
-        // Unregister from previous backend first
-        unregister_via_reg_hotkey(HotkeyKind::Assistant);
-
         let next_state = if let Some(shortcut) = shortcut {
             let spec = normalize_shortcut(&shortcut)?;
             ensure_hotkey_not_conflicting(&app_handle, HotkeyKind::Assistant, spec.label())?;
@@ -1880,6 +1908,8 @@ pub(crate) fn register_assistant_hotkey_inner(
             None
         };
 
+        // 验证通过后再注销，避免与补输入热键冲突时丢失原绑定。
+        unregister_via_reg_hotkey(HotkeyKind::Assistant);
         let previous_state = set_unified_hook_state(HotkeyKind::Assistant, next_state.clone());
 
         if let Some(previous) = previous_state.as_ref() {
@@ -1913,6 +1943,7 @@ pub async fn unregister_all_hotkeys(app_handle: tauri::AppHandle) -> Result<Stri
         unregister_via_reg_hotkey(HotkeyKind::Dictation);
         unregister_via_reg_hotkey(HotkeyKind::Translation);
         unregister_via_reg_hotkey(HotkeyKind::Assistant);
+        unregister_via_reg_hotkey(HotkeyKind::Reinsert);
 
         // Unregister from LLKH backend
         if let Some(previous) = set_unified_hook_state(HotkeyKind::Dictation, None) {
@@ -1924,6 +1955,10 @@ pub async fn unregister_all_hotkeys(app_handle: tauri::AppHandle) -> Result<Stri
         if let Some(previous) = set_unified_hook_state(HotkeyKind::Assistant, None) {
             force_release_hotkey(&previous);
         }
+    }
+    #[cfg(target_os = "windows")]
+    if let Some(previous) = set_unified_hook_state(HotkeyKind::Reinsert, None) {
+        force_release_hotkey(&previous);
     }
     stop_unified_hotkey_monitor();
     #[cfg(target_os = "windows")]

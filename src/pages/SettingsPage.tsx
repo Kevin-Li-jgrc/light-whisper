@@ -4,6 +4,7 @@ import { ArrowLeft, Mic, Monitor, Eye, Keyboard, ClipboardPaste, AudioLines, Zap
 import { toast } from "sonner";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useHotkeyCapture } from "@/hooks/useHotkeyCapture";
+import ReinsertHotkeySettings from "@/components/settings/ReinsertHotkeySettings";
 import { useExclusivePicker } from "@/hooks/useExclusivePicker";
 import { useSystemSettings } from "@/hooks/useSystemSettings";
 import { useModelDiscovery } from "@/hooks/useModelDiscovery";
@@ -2392,6 +2393,7 @@ export default function SettingsPage({
               <p className="settings-hint">
                 {t("settings.hotkeyHint")}
               </p>
+              <ReinsertHotkeySettings />
               <div className="settings-column" style={{ gap: 6, marginTop: 8 }}>
                 <span className="settings-option-desc">{t("settings.recordingMode")}</span>
                 <div

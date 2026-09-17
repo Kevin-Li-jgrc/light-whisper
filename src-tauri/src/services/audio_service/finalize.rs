@@ -469,7 +469,9 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                 );
                 if !result.is_empty() {
                     let app = app_handle.clone();
+                    let processing = state.recording.reinsert.processing();
                     tokio::spawn(async move {
+                        let _processing = processing;
                         tokio::time::sleep(std::time::Duration::from_millis(PASTE_DELAY_MS)).await;
                         do_paste(&app, &result).await;
                     });
@@ -749,7 +751,9 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
 
         if !text.is_empty() {
             let app = app_handle.clone();
+            let processing = state.recording.reinsert.processing();
             tokio::spawn(async move {
+                let _processing = processing;
                 tokio::time::sleep(std::time::Duration::from_millis(PASTE_DELAY_MS)).await;
                 do_paste(&app, &text).await;
             });
@@ -901,6 +905,12 @@ fn emit_done_with_timing(
     } else {
         subtitle_timing.hide_ms
     };
+    if mode == RecordingMode::Dictation {
+        app.state::<AppState>()
+            .recording
+            .reinsert
+            .remember(sid, text);
+    }
     let idle = app
         .state::<AppState>()
         .recording
@@ -1062,8 +1072,10 @@ fn flush_pending_paste(app: &tauri::AppHandle) {
         return;
     }
     let combined: String = texts.into_iter().collect();
+    let processing = app.state::<AppState>().recording.reinsert.processing();
     let app = app.clone();
     tokio::spawn(async move {
+        let _processing = processing;
         tokio::time::sleep(std::time::Duration::from_millis(PASTE_DELAY_MS)).await;
         do_paste(&app, &combined).await;
     });

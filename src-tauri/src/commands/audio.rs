@@ -94,6 +94,12 @@ pub(crate) async fn start_recording_inner(
     audio_service::stop_microphone_level_monitor(state);
 
     let (session_id, show_gen, stop_flag, stop_notify, starting_snapshot) = {
+        let _output = state
+            .recording
+            .reinsert
+            .output_lock
+            .try_lock()
+            .map_err(|_| AppError::Audio("文字正在输入，请稍后开始录音".into()))?;
         let mut guard = state.recording.recording.lock();
         if guard.is_some() {
             return Err(AppError::Audio(RECORDING_ALREADY_ACTIVE_ERROR.into()));
@@ -430,7 +436,9 @@ pub(crate) async fn stop_recording_inner(
         emit_recording_state(&app_handle, snapshot, false, false, true, None);
     }
 
+    let processing = state.recording.reinsert.processing();
     tokio::spawn(async move {
+        let _processing = processing;
         audio_service::finalize_recording(app_handle, session).await;
     });
 

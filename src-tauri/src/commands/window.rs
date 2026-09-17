@@ -364,6 +364,50 @@ pub fn hide_subtitle_window_inner(app_handle: &tauri::AppHandle) -> Result<Strin
     }
 }
 
+/// 补输入提示只借用空闲字幕窗口，不能隐藏新录音或抢走编辑器焦点。
+pub(crate) async fn show_reinsert_notice(app: &tauri::AppHandle, status: &str) {
+    let state = app.state::<AppState>();
+    let _window_op = state.recording.subtitle_window_op.lock().await;
+    let recording = state.recording.recording.lock();
+    let visible = app
+        .get_webview_window("subtitle")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    let current_gen = state.recording.subtitle_show_gen.load(Ordering::Acquire);
+    let owns_window = !visible
+        || (current_gen != 0
+            && state
+                .recording
+                .reinsert
+                .notice_generation
+                .load(Ordering::Acquire)
+                == current_gen);
+    if recording.is_none() && !state.recording.reinsert.is_processing() && owns_window {
+        let generation = reserve_subtitle_show_generation(app);
+        state
+            .recording
+            .reinsert
+            .notice_generation
+            .store(generation, Ordering::Release);
+        if let Err(error) = show_subtitle_window_unlocked(app, None) {
+            log::warn!("显示补输入提示失败: {}", error);
+        }
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(2600)).await;
+            let state = app.state::<AppState>();
+            let _window_op = state.recording.subtitle_window_op.lock().await;
+            let recording = state.recording.recording.lock();
+            if recording.is_none()
+                && state.recording.subtitle_show_gen.load(Ordering::Acquire) == generation
+            {
+                let _ = hide_subtitle_window_inner(&app);
+            }
+        });
+    }
+    let _ = app.emit("reinsert-status", status);
+}
+
 pub(crate) fn schedule_subtitle_hide(
     app_handle: &tauri::AppHandle,
     session_id: u64,

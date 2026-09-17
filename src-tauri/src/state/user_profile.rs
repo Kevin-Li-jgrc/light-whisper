@@ -115,6 +115,8 @@ pub struct UserProfile {
     /// 翻译模式独立热键
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation_hotkey: Option<String>,
+    #[serde(default)]
+    pub reinsert_hotkey: Option<String>,
     /// 用户自定义润色指令
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_prompt: Option<String>,
