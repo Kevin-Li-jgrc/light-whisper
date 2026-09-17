@@ -99,7 +99,7 @@ pub async fn send_llm_request(
         api_format: endpoint.api_format.clone(),
     });
     let endpoint = deepseek_responses_endpoint.as_ref().unwrap_or(endpoint);
-    let mut headers = llm_provider::build_auth_headers(&endpoint.api_format, api_key)
+    let mut headers = llm_provider::build_request_headers(endpoint, api_key, options.session_id)
         .map_err(|e| format!("构建请求头失败: {e}"))?;
     if uses_grok_build_oauth_backend(endpoint, api_key) {
         if let Some(token) = grok_build_oauth_service::decode_grok_build_oauth_access_token(api_key)
@@ -517,5 +517,88 @@ pub async fn send_llm_request(
             endpoint,
             "non_stream",
         )
+    }
+}
+
+#[cfg(test)]
+mod opencode_go_tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn opencode_go_sends_session_headers_and_preserves_them_on_retry() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for attempt in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                loop {
+                    let n = socket.read(&mut buffer).await.unwrap();
+                    assert!(n > 0);
+                    request.extend_from_slice(&buffer[..n]);
+                    if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&request[..end]).to_lowercase();
+                        let length: usize = head
+                            .lines()
+                            .find_map(|line| line.strip_prefix("content-length: "))
+                            .unwrap()
+                            .trim()
+                            .parse()
+                            .unwrap();
+                        if request.len() >= end + 4 + length {
+                            break;
+                        }
+                    }
+                }
+                requests.push(String::from_utf8(request).unwrap());
+                let (status, body) = if attempt == 0 {
+                    (
+                        "429 Too Many Requests",
+                        r#"{"error":{"message":"rate limit"}}"#,
+                    )
+                } else {
+                    (
+                        "200 OK",
+                        r#"{"choices":[{"message":{"content":"整理后的文字。"}}]}"#,
+                    )
+                };
+                let response = format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+            requests
+        });
+        let endpoint = LlmEndpoint {
+            provider: "opencode-go".into(),
+            api_url: format!("http://{address}/chat/completions"),
+            model: "glm-5.2".into(),
+            timeout_secs: 5,
+            api_format: ApiFormat::OpenaiCompat,
+        };
+        let output = send_llm_request(
+            &reqwest::Client::builder().no_proxy().build().unwrap(),
+            &endpoint,
+            "test-key",
+            &serde_json::json!({"model": "glm-5.2", "messages": [{"role": "user", "content": "原始文字"}]}),
+            4, None,
+            LlmRequestOptions { session_id: Some(42), ..Default::default() },
+        ).await.unwrap();
+        assert_eq!(output, "整理后的文字。");
+        let requests = server.await.unwrap();
+        let session_headers: Vec<_> = requests
+            .iter()
+            .map(|request| {
+                let head = request.split("\r\n\r\n").next().unwrap();
+                assert!(head.contains("authorization: Bearer test-key"));
+                assert!(head.contains("user-agent: light-whisper/"));
+                head.lines()
+                    .find(|line| line.starts_with("x-opencode-session: "))
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(session_headers[0], session_headers[1]);
+        assert!(session_headers[0].ends_with("-42"));
     }
 }

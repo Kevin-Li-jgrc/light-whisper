@@ -1,6 +1,6 @@
 import type { LlmProviderConfig, LlmReasoningMode } from "@/types";
+import { isFixedPresetProvider } from "@/lib/llmModelOptions";
 
-const BUILTIN_PROVIDERS = new Set(["cerebras", "openai", "deepseek", "siliconflow", "custom"]);
 
 export function resolveSelectionModelConfig(config: LlmProviderConfig) {
   const polishReasoning = config.polish_reasoning_mode
@@ -10,7 +10,7 @@ export function resolveSelectionModelConfig(config: LlmProviderConfig) {
   const model = config.selection_model?.trim();
   const providerExists = Boolean(
     provider
-    && (BUILTIN_PROVIDERS.has(provider)
+    && (provider === "custom" || isFixedPresetProvider(provider)
       || config.custom_providers?.some((candidate) => candidate.id === provider)),
   );
 

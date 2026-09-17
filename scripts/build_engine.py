@@ -33,6 +33,15 @@ QWEN3_CUDA_PROVIDER_URL = (
     "transcribe_cpp_native_cu12-0.1.3-py3-none-win_amd64.whl"
     "#sha256=b46eef15ccce2d3248bff99fe988f081511a1116032643276ec4ef50cb1716eb"
 )
+CUDA_RUNTIME_VERSIONS = {
+    "nvidia-cuda-runtime-cu12": "12.9.79",
+    "nvidia-cublas-cu12": "12.9.1.4",
+}
+CUDA_RUNTIME_DLLS = (
+    "nvidia/cuda_runtime/bin/cudart64_12.dll",
+    "nvidia/cublas/bin/cublasLt64_12.dll",
+    "nvidia/cublas/bin/cublas64_12.dll",
+)
 
 # 同级 Python 脚本，打包到 _internal/
 ADD_DATA_FILES = [
@@ -60,6 +69,8 @@ HIDDEN_IMPORTS = [
     "transcribe_cpp",
     "transcribe_cpp_native",
     "transcribe_cpp_native_cu12",
+    "nvidia.cuda_runtime",
+    "nvidia.cublas",
 ]
 
 # 需要完整收集的包（子模块 + 数据文件）。
@@ -68,6 +79,8 @@ COLLECT_ALL = [
     "transcribe_cpp",
     "transcribe_cpp_native",
     "transcribe_cpp_native_cu12",
+    "nvidia.cuda_runtime",
+    "nvidia.cublas",
 ]
 
 COPY_METADATA = [
@@ -119,12 +132,18 @@ EXCLUDE_MODULES = [
 
 
 def ensure_qwen3_cuda_provider() -> None:
-    """Install the pinned CUDA provider without duplicate NVIDIA runtime wheels."""
-    try:
-        installed = importlib.metadata.version("transcribe-cpp-native-cu12")
-    except importlib.metadata.PackageNotFoundError:
-        installed = None
-    if installed == QWEN3_CUDA_PROVIDER_VERSION:
+    """Install the pinned CUDA provider and its required NVIDIA runtime wheels."""
+    expected = {
+        "transcribe-cpp-native-cu12": QWEN3_CUDA_PROVIDER_VERSION,
+        **CUDA_RUNTIME_VERSIONS,
+    }
+    installed = {}
+    for package in expected:
+        try:
+            installed[package] = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            installed[package] = None
+    if installed == expected:
         return
 
     uv = shutil.which("uv")
@@ -138,16 +157,28 @@ def ensure_qwen3_cuda_provider() -> None:
         sys.executable,
         "--no-deps",
         QWEN3_CUDA_PROVIDER_URL,
+        *(f"{package}=={version}" for package, version in CUDA_RUNTIME_VERSIONS.items()),
     ]
-    if installed is not None:
-        cmd.insert(-1, "--reinstall")
     subprocess.run(cmd, check=True)
 
-    actual = importlib.metadata.version("transcribe-cpp-native-cu12")
-    if actual != QWEN3_CUDA_PROVIDER_VERSION:
-        raise RuntimeError(
-            f"Qwen3-ASR CUDA provider 版本错误: got={actual}, expected={QWEN3_CUDA_PROVIDER_VERSION}"
-        )
+    for package, version in expected.items():
+        actual = importlib.metadata.version(package)
+        if actual != version:
+            raise RuntimeError(
+                f"Qwen3-ASR CUDA 依赖版本错误: {package}, got={actual}, expected={version}"
+            )
+
+
+def validate_cuda_runtime_files(engine_dir: Path) -> None:
+    """Reject a Windows engine bundle that would silently lose CUDA support."""
+    required = (*CUDA_RUNTIME_DLLS, "transcribe_cpp_native_cu12/_native/ggml-cuda.dll")
+    missing = [
+        name for name in required
+        if not (engine_dir / "_internal" / name).is_file()
+        or (engine_dir / "_internal" / name).stat().st_size == 0
+    ]
+    if missing:
+        raise RuntimeError(f"CUDA 运行库打包不完整: {', '.join(missing)}")
 
 # Windows 运行时不需要 .lib / .pdb；这些仅用于链接或调试。
 STRIP_DEV_ARTIFACT_PATTERNS = [
@@ -391,6 +422,7 @@ def main():
 
     saved = 0.0
     saved += strip_dev_artifacts(engine_dir)
+    validate_cuda_runtime_files(engine_dir)
     stripped_size = get_size_mb(engine_dir)
     print(f"节省: {saved:.0f} MB, 瘦身后: {stripped_size:.0f} MB")
 

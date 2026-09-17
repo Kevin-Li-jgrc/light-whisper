@@ -50,6 +50,14 @@ export const llmProviderOptions: ReadonlyArray<LlmProviderOption> = [
     defaultModel: "Qwen/Qwen3-32B",
     models: ["Qwen/Qwen3-32B", "deepseek-ai/DeepSeek-V3", "Qwen/Qwen2.5-7B-Instruct"],
   },
+  {
+    key: "opencode-go",
+    label: "OpenCode Go",
+    descKey: "settings.opencodeGoDesc",
+    baseUrl: "https://opencode.ai/zen/go/v1",
+    defaultModel: "glm-5.2",
+    models: ["glm-5.2", "glm-5.3-flash", "deepseek-v4.1-flash", "kimi-k3", "gpt-5.6-luna", "minimax-m2.7"],
+  },
 ];
 
 export const reasoningModeOptions: ReadonlyArray<{

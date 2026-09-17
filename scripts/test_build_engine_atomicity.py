@@ -92,6 +92,15 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
             engine_dir = self.dist_dir / "engine"
             engine_dir.mkdir(parents=True)
             (engine_dir / "engine.exe").write_bytes(b"synthetic executable")
+            for name in (
+                "nvidia/cuda_runtime/bin/cudart64_12.dll",
+                "nvidia/cublas/bin/cublasLt64_12.dll",
+                "nvidia/cublas/bin/cublas64_12.dll",
+                "transcribe_cpp_native_cu12/_native/ggml-cuda.dll",
+            ):
+                library = engine_dir / "_internal" / name
+                library.parent.mkdir(parents=True, exist_ok=True)
+                library.write_bytes(b"synthetic runtime library")
             return types.SimpleNamespace(returncode=0)
 
         def fail_compression(_engine_dir, output):
@@ -119,6 +128,26 @@ class BuildEngineArchiveAtomicityTests(unittest.TestCase):
             f"archive only after success; attempted={attempted_outputs}, "
             f"published_bytes={self.output_archive.read_bytes() if self.output_archive.exists() else None!r}",
         )
+
+    def test_missing_cuda_runtime_prevents_publishing_engine_archive(self):
+        def fake_pyinstaller(_cmd):
+            engine_dir = self.dist_dir / "engine"
+            engine_dir.mkdir(parents=True)
+            (engine_dir / "engine.exe").write_bytes(b"synthetic executable")
+            return types.SimpleNamespace(returncode=0)
+
+        def fake_compression(_engine_dir, output):
+            output.write_bytes(b"incomplete-engine-without-cuda-runtime")
+            return 0.01
+
+        with (
+            mock.patch.object(self.module.subprocess, "run", side_effect=fake_pyinstaller),
+            mock.patch.object(self.module, "create_tar_xz", side_effect=fake_compression),
+            self.assertRaisesRegex(RuntimeError, "CUDA.*cudart64_12.dll"),
+        ):
+            self.module.main()
+
+        self.assertEqual(self.output_archive.read_bytes(), OLD_ARCHIVE)
 
 
 if __name__ == "__main__":

@@ -144,7 +144,7 @@ run_local_checks() {
     uv sync --frozen
     uv run --no-sync python -m compileall -q scripts src-tauri/resources
     uv run --no-sync python -m unittest discover -s src-tauri/resources -p "test_*.py"
-    uv run --no-sync python scripts/test_build_engine_atomicity.py
+    uv run --no-sync python -m unittest discover -s scripts -p "test_build_engine*.py"
 
     cargo fmt --manifest-path "$CARGO_TOML" --all -- --check
     cargo clippy --manifest-path "$CARGO_TOML" --all-targets --locked -- -D warnings

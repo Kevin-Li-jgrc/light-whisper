@@ -35,6 +35,71 @@ body,
   pointer-events: auto;
 }
 
+/* Shared geometry; adjustment controls are only mounted in the editor. */
+.subtitle-floating-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding-top: 22px;
+  min-width: min(240px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  pointer-events: auto;
+}
+
+.subtitle-floating-panel.is-idle { visibility: hidden; pointer-events: none; }
+.subtitle-floating-panel > .subtitle-capsule { pointer-events: auto; }
+.subtitle-floating-panel.is-sized > .subtitle-capsule {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+.subtitle-layout-toolbar {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  border-radius: 9px 9px 0 0;
+  background: var(--color-bg-overlay);
+  color: var(--color-text-secondary);
+}
+
+.subtitle-layout-toolbar button,
+.subtitle-resize-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  touch-action: none;
+  user-select: none;
+}
+.subtitle-move-handle { flex: 1; height: 22px; cursor: grab; }
+.subtitle-move-handle:active { cursor: grabbing; }
+.subtitle-reset-layout { width: 26px; height: 22px; cursor: pointer; }
+.subtitle-resize-handle {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-overlay);
+  cursor: nwse-resize;
+}
+.subtitle-layout-toolbar button:focus-visible,
+.subtitle-resize-handle:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+
 /* Capsule container — glassmorphism pill, auto-expands for long content */
 .subtitle-capsule {
   pointer-events: none;
@@ -110,7 +175,7 @@ body,
 
 /* Fade-out state */
 .subtitle-capsule.subtitle-fade-out {
-  animation: subtitle-fade-out 0.3s var(--ease-out-quart) forwards;
+  animation: subtitle-fade-out var(--subtitle-fade-duration, 0.3s) var(--ease-out-quart) forwards;
 }
 
 /* Text content */
@@ -126,6 +191,8 @@ body,
   font-variant-ligatures: common-ligatures contextual;
   font-kerning: normal;
 }
+
+.subtitle-floating-panel.is-sized .subtitle-text { max-height: none; }
 
 .subtitle-interim-stable,
 .subtitle-interim-tentative {
@@ -875,4 +942,34 @@ body,
   .subtitle-conversation-composer {
     transition: none !important;
   }
+}
+
+/* Dedicated settings preview; the recording overlay remains click-through. */
+.subtitle-layout-editor {
+  pointer-events: auto;
+  background: rgb(0 0 0 / 12%);
+}
+.subtitle-editor-instructions {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(520px, calc(100vw - 48px));
+  box-sizing: border-box;
+  padding: 16px 20px;
+  border-radius: 12px;
+  background: var(--color-bg-overlay);
+  color: var(--color-text-primary);
+  box-shadow: 0 4px 18px rgb(0 0 0 / 18%);
+  text-align: center;
+  z-index: 10;
+}
+.subtitle-editor-instructions p { margin: 8px 0; font-size: 13px; }
+.subtitle-editor-instructions button {
+  padding: 6px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  cursor: pointer;
 }

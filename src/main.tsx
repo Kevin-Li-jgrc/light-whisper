@@ -151,6 +151,14 @@ if (windowLabel === "subtitle") {
     .catch((error) => {
       console.error("Subtitle window load failed:", error);
     });
+} else if (windowLabel === "subtitle-layout") {
+  import("./pages/SubtitleLayoutEditor")
+    .then(({ default: SubtitleLayoutEditor }) => {
+      ReactDOM.createRoot(document.getElementById("root")!).render(
+        <React.StrictMode><SubtitleLayoutEditor /></React.StrictMode>
+      );
+    })
+    .catch((error) => console.error("Subtitle layout editor load failed:", error));
 } else if (windowLabel === "selection-toolbar") {
   import("./pages/SelectionOverlay")
     .then(({ default: SelectionOverlay }) => {

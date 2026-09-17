@@ -482,6 +482,9 @@ pub async fn list_ai_models(
         );
     }
     req = req.header("Content-Type", "application/json");
+    if provider == llm_provider::OPENCODE_GO {
+        req = req.headers(llm_provider::opencode_go_headers(None));
+    }
 
     let response = match req.send().await {
         Ok(r) if r.status().is_success() => r,

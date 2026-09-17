@@ -1,8 +1,10 @@
+import { DEFAULT_SUBTITLE_TIMING, resolveSubtitleTiming, type SubtitleTiming } from "@/lib/subtitleTiming";
 import {
   useState,
   useEffect,
   useRef,
   useCallback,
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent,
   type MouseEvent,
@@ -12,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { Copy, ExternalLink, MessageCircle, Send, Sparkles, X } from "lucide-react";
 import GoogleSearchEntryPoint from "@/features/assistant/GoogleSearchEntryPoint";
+import SubtitleFloatingPanel from "@/components/SubtitleFloatingPanel";
 import {
   cancelAssistantConversation,
   continueAssistantConversation,
@@ -42,6 +45,7 @@ interface RecordingState {
 }
 
 interface TranscriptionResult {
+  subtitleTiming?: SubtitleTiming;
   sessionId?: number;
   text: string;
   interim?: boolean;
@@ -93,11 +97,6 @@ interface ConversationMessage extends AssistantConversationTurn {
 }
 
 type Phase = "idle" | "starting" | "recording" | "processing" | "searching" | "polishing" | "result" | "outcome";
-const RESULT_FADE_DELAY_MS = 2000;
-// Fade animation is ~300ms; add ~100ms buffer. Total ~2400ms — fires before the
-// backend hides the subtitle window at 2500ms, so we clear stale state in time
-// to prevent a one-frame flash of previous text on the next recording.
-const RESULT_CLEANUP_DELAY_MS = RESULT_FADE_DELAY_MS + 400;
 const OUTCOME_FADE_DELAY_MS = 1500;
 const OUTCOME_CLEANUP_DELAY_MS = OUTCOME_FADE_DELAY_MS + 400;
 const QUICK_CANCEL_CLEANUP_DELAY_MS = 400;
@@ -163,6 +162,7 @@ function mergeAssistantSources(
 export default function SubtitleOverlay() {
   // 初始 "idle"：窗口预创建后隐藏，等待录音事件时切换状态
   const [phase, setPhase] = useState<Phase>("idle");
+  const [resultFadeMs, setResultFadeMs] = useState(DEFAULT_SUBTITLE_TIMING.fade_ms);
   const [text, setText] = useState("");
   const [interimSegments, setInterimSegments] = useState<InterimSegments | null>(null);
   const [fadingOut, setFadingOut] = useState(false);
@@ -883,12 +883,14 @@ export default function SubtitleOverlay() {
           }
 
           if (event.payload.mode !== "assistant") {
+            const subtitleTiming = resolveSubtitleTiming(event.payload.subtitleTiming);
+            setResultFadeMs(subtitleTiming.fade_ms);
             const expectedSessionId = latestSessionIdRef.current;
             fadeTimerRef.current = setTimeout(() => {
               if (latestSessionIdRef.current !== expectedSessionId) return;
               setFadingOut(true);
               fadeTimerRef.current = null;
-            }, RESULT_FADE_DELAY_MS);
+            }, subtitleTiming.hold_ms);
             // After the fade animation finishes, clear stale state so the next
             // recording does not flash the previous result for one frame when
             // the still-alive subtitle window is re-shown.
@@ -903,7 +905,7 @@ export default function SubtitleOverlay() {
               setStreamTokens(0);
               setWaveformBars(EMPTY_WAVEFORM_BARS);
               cleanupTimerRef.current = null;
-            }, RESULT_CLEANUP_DELAY_MS);
+            }, subtitleTiming.hold_ms + subtitleTiming.fade_ms + 100);
           }
         });
 
@@ -1179,9 +1181,11 @@ export default function SubtitleOverlay() {
   return (
     <div
       className={`subtitle-root${assistantInteractive ? " subtitle-root-interactive" : ""}`}
+      style={{ "--subtitle-fade-duration": `${phase === "result" ? resultFadeMs : 300}ms` } as CSSProperties}
       role="presentation"
       onClick={assistantOverlayDismissible ? closeAssistantOverlay : undefined}
     >
+      <SubtitleFloatingPanel active={phase !== "idle"}>
       <div
         key={capsuleSessionId}
         className={
@@ -1403,6 +1407,7 @@ export default function SubtitleOverlay() {
           </>
         )}
       </div>
+      </SubtitleFloatingPanel>
     </div>
   );
 }

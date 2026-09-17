@@ -78,7 +78,7 @@ fn find_cursor_monitor(_app_handle: &tauri::AppHandle) -> Option<tauri::Monitor>
     None
 }
 
-fn resolve_subtitle_layout(app_handle: &tauri::AppHandle) -> (f64, f64, f64, f64) {
+pub(super) fn resolve_subtitle_layout(app_handle: &tauri::AppHandle) -> (f64, f64, f64, f64) {
     let monitor = find_cursor_monitor(app_handle)
         .or_else(|| {
             app_handle

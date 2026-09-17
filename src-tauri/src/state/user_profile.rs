@@ -57,9 +57,50 @@ pub struct VocabEntry {
     pub last_seen: u64,
 }
 
+/// 字幕结果的停留、淡出和隐藏时间（毫秒）。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct SubtitleTiming {
+    pub hold_ms: u64,
+    pub fade_ms: u64,
+    pub hide_ms: u64,
+}
+
+impl Default for SubtitleTiming {
+    fn default() -> Self {
+        Self {
+            hold_ms: 2000,
+            fade_ms: 300,
+            hide_ms: 2500,
+        }
+    }
+}
+
+impl SubtitleTiming {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.hold_ms > 30_000 || self.fade_ms > 5_000 || self.hide_ms > 60_000 {
+            return Err("停留最多 30 秒，淡出最多 5 秒，正式隐藏最多 60 秒".to_string());
+        }
+        if self.hide_ms < self.hold_ms + self.fade_ms + 200 {
+            return Err("正式隐藏时间至少需要比停留时间加淡出时长晚 0.2 秒".to_string());
+        }
+        Ok(())
+    }
+
+    pub fn validated_or_default(self) -> Self {
+        if self.validate().is_ok() {
+            self
+        } else {
+            Self::default()
+        }
+    }
+}
+
 /// 用户画像
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UserProfile {
+    #[serde(default)]
+    pub subtitle_timing: SubtitleTiming,
     pub hot_words: Vec<HotWord>,
     pub correction_patterns: Vec<CorrectionPattern>,
     pub vocab_frequency: HashMap<String, VocabEntry>,
@@ -537,7 +578,7 @@ impl LlmProviderConfig {
     fn is_builtin_provider(provider: &str) -> bool {
         matches!(
             provider,
-            "cerebras" | "openai" | "xai" | "deepseek" | "siliconflow" | "custom"
+            "cerebras" | "openai" | "xai" | "deepseek" | "siliconflow" | "opencode-go" | "custom"
         )
     }
 
@@ -1071,5 +1112,75 @@ mod tests {
         let resolved = profile.resolve_app_profile("Code.exe", "main.rs - light-whisper");
         assert_eq!(resolved.rule_id.as_deref(), Some("fallback"));
         assert_eq!(resolved.screen_context_enabled, Some(false));
+    }
+}
+
+#[cfg(test)]
+mod subtitle_timing_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_profiles_keep_existing_subtitle_timing() {
+        let mut value = serde_json::to_value(UserProfile::default()).unwrap();
+        value.as_object_mut().unwrap().remove("subtitle_timing");
+        let profile: UserProfile = serde_json::from_value(value).unwrap();
+        assert_eq!(profile.subtitle_timing, SubtitleTiming::default());
+        assert_eq!(profile.subtitle_timing.hide_ms, 2500);
+    }
+
+    #[test]
+    fn rejects_hiding_before_fade_and_cleanup_finish() {
+        assert!(SubtitleTiming {
+            hold_ms: 5000,
+            fade_ms: 800,
+            hide_ms: 6200
+        }
+        .validate()
+        .is_ok());
+        assert!(SubtitleTiming {
+            hold_ms: 5000,
+            fade_ms: 800,
+            hide_ms: 5900
+        }
+        .validate()
+        .is_err());
+        assert!(SubtitleTiming {
+            hold_ms: u64::MAX,
+            fade_ms: 300,
+            hide_ms: 2500
+        }
+        .validate()
+        .is_err());
+        assert!(SubtitleTiming {
+            hold_ms: 0,
+            fade_ms: 0,
+            hide_ms: 200
+        }
+        .validate()
+        .is_ok());
+    }
+
+    #[test]
+    fn persisted_timing_round_trips_and_invalid_imports_fall_back() {
+        let timing = SubtitleTiming {
+            hold_ms: 5000,
+            fade_ms: 800,
+            hide_ms: 6200,
+        };
+        let profile = UserProfile {
+            subtitle_timing: timing,
+            ..Default::default()
+        };
+        let restored: UserProfile =
+            serde_json::from_str(&serde_json::to_string(&profile).unwrap()).unwrap();
+        assert_eq!(restored.subtitle_timing, timing);
+        assert_eq!(
+            SubtitleTiming {
+                hide_ms: 1,
+                ..timing
+            }
+            .validated_or_default(),
+            SubtitleTiming::default()
+        );
     }
 }

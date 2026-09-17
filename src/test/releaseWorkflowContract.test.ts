@@ -51,7 +51,7 @@ describe("release workflow contract", () => {
       "pnpm audit --prod --audit-level high",
       "uv lock --check",
       "python -m unittest discover",
-      "scripts/test_build_engine_atomicity.py",
+      'python -m unittest discover -s scripts -p "test_build_engine*.py"',
       "cargo fmt",
       "cargo clippy",
       "cargo test",

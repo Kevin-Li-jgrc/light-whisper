@@ -18,6 +18,18 @@ const baseConfig = {
 };
 
 describe("resolveSelectionModelConfig", () => {
+  it("preserves an independently selected OpenCode Go model", () => {
+    expect(resolveSelectionModelConfig({
+      ...baseConfig,
+      selection_use_separate_model: true,
+      selection_provider: "opencode-go",
+      selection_model: "glm-5.2",
+    })).toMatchObject({
+      provider: "opencode-go",
+      model: "glm-5.2",
+      followsPolish: false,
+    });
+  });
   it("follows the AI polish provider and reasoning mode by default", () => {
     expect(resolveSelectionModelConfig(baseConfig)).toEqual({
       provider: "deepseek",

@@ -26,10 +26,19 @@ const OPENAI: &str = "openai";
 const XAI: &str = "xai";
 const DEEPSEEK: &str = "deepseek";
 const SILICONFLOW: &str = "siliconflow";
+pub const OPENCODE_GO: &str = "opencode-go";
 const CUSTOM: &str = "custom";
 
 /// 预置服务商列表（用于判断是否为预置）
-const PRESET_PROVIDERS: &[&str] = &[CEREBRAS, OPENAI, XAI, DEEPSEEK, SILICONFLOW, CUSTOM];
+const PRESET_PROVIDERS: &[&str] = &[
+    CEREBRAS,
+    OPENAI,
+    XAI,
+    DEEPSEEK,
+    SILICONFLOW,
+    OPENCODE_GO,
+    CUSTOM,
+];
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct LlmReasoningSupport {
@@ -69,6 +78,7 @@ fn default_endpoint_parts(provider: &str) -> (&'static str, &'static str, u64) {
         XAI => ("https://api.x.ai", "grok-4.6", 10),
         DEEPSEEK => ("https://api.deepseek.com", "deepseek-v4-flash", 10),
         SILICONFLOW => ("https://api.siliconflow.cn", "Qwen/Qwen3-32B", 10),
+        OPENCODE_GO => ("https://opencode.ai/zen/go/v1", "glm-5.2", 30),
         CUSTOM => ("http://127.0.0.1:8000", "gpt-4.1-mini", 10),
         _ => ("https://api.cerebras.ai", "gpt-oss-120b", 5),
     }
@@ -163,6 +173,34 @@ fn is_preset(provider: &str) -> bool {
 /// 根据后端配置获取 LLM 端点
 pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
     let active_provider = config.resolve_active_provider();
+
+    if active_provider == OPENCODE_GO {
+        let (base_url, default_model, timeout_secs) = default_endpoint_parts(OPENCODE_GO);
+        let model = config
+            .custom_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .unwrap_or(default_model);
+        // Go 的协议按模型区分，不能将整个服务商固定为 Chat Completions。
+        // 依据 https://opencode.ai/docs/go/#endpoints；新模型可用自定义服务商显式指定协议。
+        let (suffix, api_format) = match model {
+            "gpt-5.6-luna"
+            | "grok-4.6"
+            | "muse-spark-1.3-contributor"
+            | "muse-spark-1.2-contributor" => ("responses", ApiFormat::OpenaiCompat),
+            "minimax-m3" | "minimax-m2.7" | "minimax-m2.5" | "qwen3.8-max" | "qwen3.8-flash"
+            | "qwen3.7-max" | "qwen3.7-plus" | "qwen3.6-plus" => ("messages", ApiFormat::Anthropic),
+            _ => ("chat/completions", ApiFormat::OpenaiCompat),
+        };
+        return LlmEndpoint {
+            provider: active_provider,
+            api_url: format!("{base_url}/{suffix}"),
+            model: model.to_string(),
+            timeout_secs,
+            api_format,
+        };
+    }
 
     if is_preset(&active_provider) {
         let (default_base_url, default_model, timeout_secs) =
@@ -478,7 +516,7 @@ pub async fn probe_image_support_from_provider_metadata(
             .get(&url)
             .timeout(std::time::Duration::from_secs(2));
         if use_auth {
-            let Ok(headers) = build_auth_headers(&endpoint.api_format, api_key) else {
+            let Ok(headers) = build_request_headers(endpoint, api_key, None) else {
                 continue;
             };
             request = request.headers(headers);
@@ -1422,10 +1460,46 @@ pub fn keyring_user_for_provider(provider: &str) -> String {
         XAI => "xai-api-key".to_string(),
         DEEPSEEK => "deepseek-api-key".to_string(),
         SILICONFLOW => "siliconflow-api-key".to_string(),
+        OPENCODE_GO => "opencode-go-api-key".to_string(),
         CUSTOM => "custom-api-key".to_string(),
         CEREBRAS => "cerebras-api-key".to_string(),
         id => format!("custom-{id}-api-key"),
     }
+}
+
+/// Go 使用真实客户端标识，并在同一进程的同一会话及其重试中保持会话 ID。
+/// 随机进程前缀避免不同设备或应用重启后的录音序号发生碰撞。
+pub fn opencode_go_headers(session_id: Option<u64>) -> reqwest::header::HeaderMap {
+    static INSTANCE_ID: OnceLock<String> = OnceLock::new();
+    let instance = INSTANCE_ID.get_or_init(|| format!("{:032x}", rand::random::<u128>()));
+    let session = session_id
+        .map(|id| format!("{instance}-{id}"))
+        .unwrap_or_else(|| format!("{instance}-{:032x}", rand::random::<u128>()));
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "user-agent",
+        reqwest::header::HeaderValue::from_static(concat!(
+            "light-whisper/",
+            env!("CARGO_PKG_VERSION")
+        )),
+    );
+    headers.insert(
+        "x-opencode-session",
+        session.parse().expect("generated ASCII session ID"),
+    );
+    headers
+}
+
+pub fn build_request_headers(
+    endpoint: &LlmEndpoint,
+    api_key: &str,
+    session_id: Option<u64>,
+) -> Result<reqwest::header::HeaderMap, String> {
+    let mut headers = build_auth_headers(&endpoint.api_format, api_key)?;
+    if endpoint.provider == OPENCODE_GO {
+        headers.extend(opencode_go_headers(session_id));
+    }
+    Ok(headers)
 }
 
 /// 构建认证 headers（按 api_format 分支）
@@ -1524,6 +1598,125 @@ pub fn sync_runtime_api_key(app_handle: &tauri::AppHandle, state: &AppState) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opencode_go_resolves_saved_config_and_model_protocols() {
+        for (model, suffix, format) in [
+            ("glm-5.2", "chat/completions", ApiFormat::OpenaiCompat),
+            (
+                "deepseek-v4.1-flash",
+                "chat/completions",
+                ApiFormat::OpenaiCompat,
+            ),
+            ("gpt-5.6-luna", "responses", ApiFormat::OpenaiCompat),
+            ("grok-4.6", "responses", ApiFormat::OpenaiCompat),
+            ("minimax-m2.7", "messages", ApiFormat::Anthropic),
+            ("qwen3.8-max", "messages", ApiFormat::Anthropic),
+        ] {
+            let config = LlmProviderConfig {
+                active: "opencode-go".into(),
+                custom_model: Some(model.into()),
+                ..Default::default()
+            };
+            let endpoint = endpoint_for_config(&config);
+            assert_eq!(endpoint.provider, "opencode-go");
+            assert_eq!(endpoint.model, model);
+            assert_eq!(
+                endpoint.api_url,
+                format!("https://opencode.ai/zen/go/v1/{suffix}")
+            );
+            assert_eq!(endpoint.api_format, format);
+            let preview =
+                endpoint_for_preview("opencode-go", None, Some(model), ApiFormat::OpenaiCompat);
+            assert_eq!(preview.api_url, endpoint.api_url);
+            assert_eq!(preview.api_format, endpoint.api_format);
+        }
+        assert_eq!(
+            models_url(&LlmProviderConfig::default(), "opencode-go", None),
+            "https://opencode.ai/zen/go/v1/models"
+        );
+    }
+
+    #[test]
+    fn opencode_go_headers_keep_sessions_separate_and_other_providers_unchanged() {
+        let first = opencode_go_headers(Some(10));
+        assert_eq!(
+            first["x-opencode-session"],
+            opencode_go_headers(Some(10))["x-opencode-session"]
+        );
+        assert_ne!(
+            first["x-opencode-session"],
+            opencode_go_headers(Some(11))["x-opencode-session"]
+        );
+        assert_ne!(
+            opencode_go_headers(None)["x-opencode-session"],
+            opencode_go_headers(None)["x-opencode-session"]
+        );
+        let go = endpoint_for_preview(
+            OPENCODE_GO,
+            None,
+            Some("minimax-m2.7"),
+            ApiFormat::OpenaiCompat,
+        );
+        let headers = build_request_headers(&go, "test-key", Some(10)).unwrap();
+        assert_eq!(headers["x-api-key"], "test-key");
+        assert_eq!(headers["anthropic-version"], "2023-06-01");
+        assert_eq!(headers["x-opencode-session"], first["x-opencode-session"]);
+        let other = endpoint_for_preview(DEEPSEEK, None, None, ApiFormat::OpenaiCompat);
+        let other_headers = build_request_headers(&other, "test-key", Some(10)).unwrap();
+        assert!(!other_headers.contains_key("x-opencode-session"));
+        assert_eq!(other_headers["authorization"], "Bearer test-key");
+        assert_eq!(
+            keyring_user_for_provider(OPENCODE_GO),
+            "opencode-go-api-key"
+        );
+        assert_ne!(
+            keyring_user_for_provider(OPENCODE_GO),
+            keyring_user_for_provider(OPENAI)
+        );
+    }
+
+    #[test]
+    fn opencode_go_uses_existing_request_and_response_adapters() {
+        use crate::services::llm_client::{
+            build_llm_body, extract_content, LlmRequestOptions, LlmUserInput,
+        };
+        for (model, response) in [
+            (
+                "glm-5.2",
+                serde_json::json!({"choices":[{"message":{"content":"整理后的文字。"}}]}),
+            ),
+            (
+                "gpt-5.6-luna",
+                serde_json::json!({"output":[{"type":"message","content":[{"type":"output_text","text":"整理后的文字。"}]}]}),
+            ),
+            (
+                "minimax-m2.7",
+                serde_json::json!({"content":[{"type":"text","text":"整理后的文字。"}]}),
+            ),
+        ] {
+            let endpoint =
+                endpoint_for_preview(OPENCODE_GO, None, Some(model), ApiFormat::OpenaiCompat);
+            let body = build_llm_body(
+                &endpoint,
+                "整理文字",
+                &LlmUserInput::from("原始文字"),
+                LlmRequestOptions::default(),
+            );
+            assert_eq!(body["model"], model);
+            if model == "gpt-5.6-luna" {
+                assert!(body.get("input").is_some());
+                assert!(body.get("messages").is_none());
+            } else {
+                assert!(body.get("messages").is_some());
+                assert!(body.get("input").is_none());
+            }
+            assert_eq!(
+                extract_content(&endpoint, &response).as_deref(),
+                Some("整理后的文字。")
+            );
+        }
+    }
 
     #[test]
     fn named_presets_ignore_custom_endpoint_overrides() {
