@@ -31,7 +31,8 @@ class FakeModel:
 
     def __init__(self, path, backend):
         self.path = path
-        self.backend = backend
+        self.backend = {"cuda": "CUDA0", "vulkan": "Vulkan0", "cpu": "CPU"}[backend]
+        self.device = types.SimpleNamespace(kind=backend)
         self.session_instance = FakeSession()
         self.session_calls = 0
         self.session_options = None
@@ -203,6 +204,77 @@ class Qwen3ASRServerTests(unittest.TestCase):
         self.assertEqual(result["vad_segments"], 2)
         self.assertEqual(result["speech_duration"], 0.8)
         self.assertTrue(server.check_status()["models"]["vad"])
+
+
+class Qwen3ASRDeviceStatusTests(unittest.TestCase):
+    def initialize_model(self, actual_backend, *, detected="cpu", cuda_fails=False):
+        model = FakeModel("model.gguf", backend=actual_backend)
+        model.device = types.SimpleNamespace(
+            kind=actual_backend,
+            name=model.backend,
+            description={
+                "vulkan": "Intel Arc Graphics",
+                "cuda": "Test NVIDIA GPU",
+                "cpu": "Test CPU",
+            }[actual_backend],
+            memory_total=8 * 1024**3,
+        )
+        requested = []
+
+        def load_model(_path, backend):
+            requested.append(backend)
+            if cuda_fails and backend == "cuda":
+                raise RuntimeError("CUDA runtime unavailable")
+            return model
+
+        with (
+            mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_detect_device", return_value=detected),
+            mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_resolve_model_path", return_value="model.gguf"),
+            mock.patch.object(qwen3_asr_server.Qwen3ASRServer, "_warmup_inference"),
+            mock.patch.object(qwen3_asr_server, "FireRedVad", return_value=FakeVad([])),
+            mock.patch.dict(sys.modules, {"transcribe_cpp": types.SimpleNamespace(Model=load_model)}),
+            mock.patch("subprocess.run", return_value=types.SimpleNamespace(stdout="Unrelated NVIDIA GPU, 4096")) as run_mock,
+        ):
+            server = qwen3_asr_server.Qwen3ASRServer(engine="qwen3-asr-1.7b")
+            result = server.initialize()
+            status = server.check_status()
+        self.assertTrue(result["success"], result)
+        self.assertTrue(status["success"], status)
+        run_mock.assert_not_called()
+        return result, status, requested
+
+    def test_auto_reports_the_resolved_vulkan_gpu_in_initialization_and_status(self):
+        result, status, requested = self.initialize_model("vulkan")
+        self.assertEqual(requested, ["auto"])
+        for payload in (result, status):
+            self.assertEqual(payload["backend"], "vulkan")
+            self.assertEqual(payload["device"], "vulkan")
+            self.assertEqual(payload.get("gpu_name"), "Intel Arc Graphics")
+            self.assertEqual(payload["gpu_memory_total"], 8.0)
+
+    def test_cuda_fallback_reports_the_selected_vulkan_gpu(self):
+        result, status, requested = self.initialize_model("vulkan", detected="cuda", cuda_fails=True)
+        self.assertEqual(requested, ["cuda", "vulkan"])
+        for payload in (result, status):
+            self.assertEqual(payload["device"], "vulkan")
+            self.assertEqual(payload.get("gpu_name"), "Intel Arc Graphics")
+
+    def test_cuda_metadata_comes_from_the_loaded_model_without_nvidia_smi(self):
+        result, status, requested = self.initialize_model("cuda", detected="cuda")
+        self.assertEqual(requested, ["cuda"])
+        for payload in (result, status):
+            self.assertEqual(payload["device"], "cuda")
+            self.assertEqual(payload["gpu_name"], "Test NVIDIA GPU")
+            self.assertEqual(payload["gpu_memory_total"], 8.0)
+
+    def test_auto_resolving_to_cpu_does_not_report_gpu_metadata(self):
+        result, status, requested = self.initialize_model("cpu")
+        self.assertEqual(requested, ["auto"])
+        for payload in (result, status):
+            self.assertEqual(payload["backend"], "cpu")
+            self.assertEqual(payload["device"], "cpu")
+            self.assertNotIn("gpu_name", payload)
+            self.assertNotIn("gpu_memory_total", payload)
 
 
 if __name__ == "__main__":

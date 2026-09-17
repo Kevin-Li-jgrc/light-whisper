@@ -21,6 +21,7 @@ interface StatusIndicatorProps {
 
 function getDeviceLabel(device: string, gpuName: string | null, t: (key: string, options?: Record<string, unknown>) => string): string {
   if (device === "cloud") return t("status.online");
+  if (device === "vulkan") return gpuName || "GPU (Vulkan)";
   if (device === "cuda" || device === "gpu") return gpuName || "GPU";
   return "CPU";
 }

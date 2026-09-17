@@ -1,8 +1,13 @@
+import { lazy, Suspense, useState } from "react";
+import { toast } from "sonner";
+import { openSubtitleLayoutEditor } from "@/api/subtitleWindow";
 import { Languages, Monitor, Moon, Sun } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/hooks/useTheme";
 import { LANGUAGE_STORAGE_KEY } from "@/lib/constants";
 import { writeLocalStorage } from "@/lib/storage";
+
+const SubtitleTimingDialog = lazy(() => import("./SubtitleTimingDialog"));
 
 const themeOptions = [
   { mode: "light" as const, icon: Sun, labelKey: "settings.themeLight" },
@@ -21,6 +26,18 @@ interface AppearancePickerProps {
 
 export default function AppearanceSettingsSection({ picker }: { picker: AppearancePickerProps }) {
   const { t, i18n } = useTranslation();
+  const [openingLayout, setOpeningLayout] = useState(false);
+  const [timingOpen, setTimingOpen] = useState(false);
+  const openLayout = async () => {
+    setOpeningLayout(true);
+    try {
+      await openSubtitleLayoutEditor();
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setOpeningLayout(false);
+    }
+  };
   const { isDark, theme, setTheme } = useTheme();
 
   return (
@@ -84,6 +101,23 @@ export default function AppearanceSettingsSection({ picker }: { picker: Appearan
           )}
         </div>
       </div>
+      <div className="settings-row">
+        <div>
+          <span className="settings-row-label">{t("subtitle.layoutTitle")}</span>
+          <p className="settings-option-desc">{t("subtitle.layoutSettingsHelp")}</p>
+        </div>
+        <button type="button" className="test-btn" onClick={() => void openLayout()} disabled={openingLayout}>
+          {t("subtitle.layoutAdjust")}
+        </button>
+      </div>
+      <div className="settings-row">
+        <div>
+          <span className="settings-row-label">{t("subtitle.timingTitle")}</span>
+          <p className="settings-option-desc">{t("subtitle.timingSettingsHelp")}</p>
+        </div>
+        <button type="button" className="test-btn" onClick={() => setTimingOpen(true)}>{t("subtitle.timingConfigure")}</button>
+      </div>
+      {timingOpen && <Suspense fallback={null}><SubtitleTimingDialog onClose={() => setTimingOpen(false)} /></Suspense>}
     </section>
   );
 }

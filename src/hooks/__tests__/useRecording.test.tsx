@@ -71,6 +71,7 @@ vi.mock("@/i18n", () => ({
 }));
 
 import { useRecording } from "@/hooks/useRecording";
+import { toast } from "sonner";
 
 beforeEach(() => {
   tauriEvents.reset();
@@ -91,6 +92,22 @@ async function flushMicrotasks() {
 }
 
 describe("useRecording session-ID filtering (characterization / regression)", () => {
+  it("shows a polish failure and retains the fallback transcript in the display and history", async () => {
+    const { result } = renderHook(() => useRecording());
+    await flushMicrotasks();
+    await act(async () => {
+      tauriEvents.emit("ai-polish-status", {
+        sessionId: 1, status: "error", error: "API 返回错误 403",
+      });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 1, text: "原始识别文字", originalText: "原始识别文字",
+        interim: false, polished: false,
+      });
+    });
+    expect(toast.error).toHaveBeenCalledWith("toast.aiPolishFailed", { duration: 2500 });
+    expect(result.current.transcriptionResult).toBe("原始识别文字");
+    expect(result.current.history[0].text).toBe("原始识别文字");
+  });
   it("late-arriving final result from an older session must NOT overwrite current display", async () => {
     tauriInvokeMocks.startRecording.mockResolvedValueOnce(5);
     tauriInvokeMocks.startRecording.mockResolvedValueOnce(6);

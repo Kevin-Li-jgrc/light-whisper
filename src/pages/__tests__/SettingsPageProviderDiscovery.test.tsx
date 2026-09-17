@@ -331,6 +331,18 @@ beforeEach(() => resetMocks());
 afterEach(() => vi.clearAllMocks());
 
 describe("SettingsPage provider configuration saves", () => {
+  it("selects OpenCode Go for polish and persists its model without creating a custom provider", async () => {
+    await renderSettings();
+    await chooseProvider(openProviderPicker(), "OpenCode Go");
+    expect(screen.getByRole("textbox", { name: "Model name" })).toHaveValue("glm-5.2");
+    await waitFor(() => {
+      const calls = tauriMock.setLlmProviderConfig.mock.calls;
+      expect(calls[calls.length - 1]?.[0]).toBe("opencode-go");
+      expect(calls[calls.length - 1]?.[2]).toBe("glm-5.2");
+    });
+    expect(tauriMock.addCustomProvider).not.toHaveBeenCalled();
+  });
+
   it("persists a normal polish model edit after its debounce", async () => {
     await renderSettings();
 

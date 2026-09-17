@@ -1458,3 +1458,25 @@ describe("SubtitleOverlay local-ASR interim stability layers", () => {
     expect(readSubtitleText(container)).toBe("旧引擎中间结果");
   });
 });
+
+describe("custom subtitle timing", () => {
+  it("uses the timing snapshot attached to a final result for fade and cleanup", async () => {
+    const { container } = render(<SubtitleOverlay />);
+    await flushAsyncListeners();
+    await act(async () => {
+      tauriEvents.emit("recording-state", { sessionId: 81, isRecording: true, isProcessing: false });
+      tauriEvents.emit("transcription-result", {
+        sessionId: 81, text: "longer preview", interim: false,
+        subtitleTiming: { hold_ms: 5000, fade_ms: 800, hide_ms: 6200 },
+      });
+    });
+    await advance(3000);
+    expect(readSubtitleText(container)).toContain("longer preview");
+    expect(container.querySelector(".subtitle-fade-out")).toBeNull();
+    await advance(2000);
+    expect(container.querySelector(".subtitle-fade-out")).not.toBeNull();
+    expect((container.querySelector(".subtitle-root") as HTMLElement).style.getPropertyValue("--subtitle-fade-duration")).toBe("800ms");
+    await advance(950);
+    expect(readSubtitleText(container)).toBe("");
+  });
+});

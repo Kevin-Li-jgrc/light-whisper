@@ -14,7 +14,7 @@ use crate::services::{
     ai_polish_service, alibaba_asr_service, assistant_service, funasr_service, glm_asr_service,
     history_service,
 };
-use crate::state::user_profile::{ResolvedAppProfile, UserProfile};
+use crate::state::user_profile::{ResolvedAppProfile, SubtitleTiming, UserProfile};
 use crate::state::{
     AppState, DictationOutputMode, RecordingMode, RecordingOutcomeKind, RecordingPhase,
     RecordingSession, RecordingSnapshot,
@@ -891,10 +891,15 @@ fn emit_done_with_timing(
     edit_grab_status: EditGrabStatus,
     timing: Option<TranscriptionTiming>,
 ) {
+    // Snapshot once: frontend animation and native hide use the same settings
+    // even if the user saves a new configuration while this result is visible.
+    let subtitle_timing = app
+        .state::<AppState>()
+        .with_profile(|profile| profile.subtitle_timing.validated_or_default());
     let delay = if text.is_empty() {
         EMPTY_RESULT_HIDE_DELAY_MS
     } else {
-        RESULT_HIDE_DELAY_MS
+        subtitle_timing.hide_ms
     };
     let idle = app
         .state::<AppState>()
@@ -917,6 +922,7 @@ fn emit_done_with_timing(
         language,
         edit_grab_status,
         timing,
+        subtitle_timing,
     );
     if mode != RecordingMode::Assistant || text.is_empty() {
         crate::commands::window::schedule_subtitle_hide(app, sid, show_gen, mode, delay);
@@ -935,12 +941,14 @@ fn emit_transcription_result(
     language: Option<&str>,
     edit_grab_status: EditGrabStatus,
     timing: Option<TranscriptionTiming>,
+    subtitle_timing: SubtitleTiming,
 ) {
     let mut payload = serde_json::json!({
         "sessionId": sid, "text": text, "interim": false,
         "durationSec": dur, "charCount": text.chars().count(), "polished": polished,
         "language": language, "mode": mode.as_str(), "originalText": original_text,
         "editGrabStatus": edit_grab_status.as_str(),
+        "subtitleTiming": subtitle_timing,
     });
     if let Some(timing) = timing {
         payload["timing"] = serde_json::json!(timing);

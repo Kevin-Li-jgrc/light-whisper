@@ -5,7 +5,6 @@
 
 import importlib.metadata
 import os
-import subprocess
 import time
 import traceback
 
@@ -59,25 +58,14 @@ class Qwen3ASRServer(BaseASRServer):
 
     def _get_gpu_device_info(self):
         info = {"device": self.device}
-        if self.backend != "cuda":
+        if self.model is None or self.device == "cpu":
             return info
-        query = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        try:
-            name, memory_mb = [part.strip() for part in query.stdout.splitlines()[0].split(",", 1)]
-            info["gpu_name"] = name
-            info["gpu_memory_total"] = round(float(memory_mb) / 1024, 1)
-        except (IndexError, ValueError):
-            pass
+        # Native metadata identifies the selected adapter even on mixed-GPU
+        # systems, where nvidia-smi may describe a different device.
+        device = self.model.device
+        info["gpu_name"] = device.description or device.name
+        if device.memory_total > 0:
+            info["gpu_memory_total"] = round(device.memory_total / (1024**3), 1)
         return info
 
     def _cleanup_memory(self):
@@ -123,8 +111,15 @@ class Qwen3ASRServer(BaseASRServer):
                     session = model.session(kv_type="f16", n_ctx=QWEN3_ASR_N_CTX)
                 self.model = model
                 self.session = session
-                self.backend = backend
-                self.device = "cuda" if backend == "cuda" else backend
+                # Model.backend may be an adapter label (e.g. CUDA0); kind is
+                # the canonical backend value used by status consumers.
+                self.backend = model.device.kind
+                self.device = self.backend
+                logger.info(
+                    "Qwen3-ASR 后端加载成功: backend=%s, device=%s",
+                    self.backend,
+                    self._get_gpu_device_info().get("gpu_name", self.device),
+                )
                 return
             except Exception as exc:
                 errors.append(f"{backend}: {exc}")

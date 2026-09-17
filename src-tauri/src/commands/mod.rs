@@ -9,5 +9,6 @@ pub mod history;
 pub mod hotkey;
 pub mod profile;
 pub mod selection;
+pub mod subtitle_layout;
 pub mod updater;
 pub mod window;
