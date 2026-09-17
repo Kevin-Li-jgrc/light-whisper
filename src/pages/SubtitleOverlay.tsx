@@ -15,6 +15,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Copy, ExternalLink, MessageCircle, Send, Sparkles, X } from "lucide-react";
 import GoogleSearchEntryPoint from "@/features/assistant/GoogleSearchEntryPoint";
 import SubtitleFloatingPanel from "@/components/SubtitleFloatingPanel";
+import ReinsertNotice from "@/components/ReinsertNotice";
 import {
   cancelAssistantConversation,
   continueAssistantConversation,
@@ -1185,6 +1186,7 @@ export default function SubtitleOverlay() {
       role="presentation"
       onClick={assistantOverlayDismissible ? closeAssistantOverlay : undefined}
     >
+      <ReinsertNotice key={capsuleSessionId} />
       <SubtitleFloatingPanel active={phase !== "idle"}>
       <div
         key={capsuleSessionId}

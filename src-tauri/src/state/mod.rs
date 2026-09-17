@@ -1,4 +1,5 @@
 pub mod app_state;
+pub mod reinsert;
 pub mod user_profile;
 pub use app_state::{
     AppState, DictationOutputMode, DownloadTask, EngineState, FunasrProcess, HotkeyDiagnosticState,

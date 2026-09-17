@@ -284,6 +284,7 @@ impl Default for EngineState {
 
 /// 当前录音会话 + 粘贴队列 + 麦克风相关运行时
 pub struct RecordingState {
+    pub reinsert: super::reinsert::ReinsertState,
     pub recording: Arc<parking_lot::Mutex<Option<RecordingSlot>>>,
     recording_snapshot: Arc<parking_lot::Mutex<Option<RecordingSnapshot>>>,
     snapshot_revision: AtomicU64,
@@ -298,6 +299,7 @@ pub struct RecordingState {
 impl Default for RecordingState {
     fn default() -> Self {
         Self {
+            reinsert: Default::default(),
             recording: Default::default(),
             recording_snapshot: Default::default(),
             snapshot_revision: AtomicU64::new(0),

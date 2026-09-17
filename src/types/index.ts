@@ -221,6 +221,7 @@ export interface UserProfile {
   llm_provider: LlmProviderConfig;
   translation_target?: string | null;
   translation_hotkey?: string | null;
+  reinsert_hotkey?: string | null;
   custom_prompt?: string | null;
   polish_structure_level?: PolishStructureLevel;
   assistant_hotkey?: string | null;
@@ -327,4 +328,3 @@ export interface SelectionAssistantConfig {
   translation_target: string;
   excluded_apps: string[];
 }
-

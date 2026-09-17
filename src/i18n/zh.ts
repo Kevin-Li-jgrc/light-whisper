@@ -1,4 +1,12 @@
 const zh = {
+  reinsert: {
+    sent: "已尝试补输入，请确认目标输入框中的文字",
+    busy: "录音、识别或输入尚未结束，请稍后再试",
+    empty: "暂无可补输入的文字，请先完成一次语音输入",
+    releaseKeys: "请松开快捷键后重试",
+    focusChanged: "目标窗口已变化，请选好输入框后重试",
+    failed: "补输入失败，文字仍已保留，可以重试或从主界面复制",
+  },
   common: {
     copy: "复制",
     copied: "已复制",
@@ -350,6 +358,10 @@ const zh = {
     micNotStarted: "电平预览未启动，设备可能被其他程序占用",
     savedMicUnavailable: "已保存的麦克风当前不可用，录音时会回退到系统默认设备。",
     inputMethod: "输入方式",
+    reinsertHotkeyLabel: "补输入上一段",
+    noReinsertHotkey: "点击设置快捷键",
+    pressReinsertHotkey: "按下补输入快捷键…",
+    reinsertHotkeyHint: "先点击目标输入框，再按此快捷键补入最近一段最终文字，无需重新识别。本次运行内有效；重复按下会再次插入。",
     directInput: "直接输入",
     directInputDesc: "不占用剪贴板",
     clipboardPaste: "剪贴板粘贴",

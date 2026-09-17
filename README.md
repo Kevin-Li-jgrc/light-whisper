@@ -114,6 +114,8 @@ cd src-tauri && cargo check
 
 **Hotkey not working**: the current default dictation hotkey is `F2`. Change it in Settings if another app owns it.
 
+**Dictation finished but nothing appeared**: focus the intended input first. Configure “Reinsert last dictation” under Settings → Hotkeys, then press and release that shortcut to insert the latest final text using your selected input method, without transcribing or polishing again. The cache lasts until restart and does not require history to be enabled. Reinsertion is blocked during recording, processing or typing. Triggering it again inserts another copy, so check the target first.
+
 **GPU not detected**: run `nvidia-smi`. Qwen3-ASR records its selected device/backend in `qwen3_asr_server.log`.
 
 **Log locations**:

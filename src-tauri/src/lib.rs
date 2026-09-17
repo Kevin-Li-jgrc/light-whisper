@@ -104,7 +104,7 @@ pub fn run() {
                 type HotkeyRegisterFn =
                     dyn Fn(tauri::AppHandle, Option<String>) -> Result<String, utils::AppError>;
                 let state = app_handle.state::<AppState>();
-                let hotkeys: [(&str, &HotkeyRegisterFn, Option<String>); 2] = [
+                let hotkeys: [(&str, &HotkeyRegisterFn, Option<String>); 3] = [
                     (
                         "翻译",
                         &commands::hotkey::register_translation_hotkey_inner,
@@ -114,6 +114,11 @@ pub fn run() {
                         "助手",
                         &commands::hotkey::register_assistant_hotkey_inner,
                         state.with_profile(|p| p.assistant_hotkey.clone()),
+                    ),
+                    (
+                        "补输入上一段",
+                        &commands::hotkey::register_reinsert_hotkey_inner,
+                        state.with_profile(|p| p.reinsert_hotkey.clone()),
                     ),
                 ];
                 for (label, register, shortcut) in hotkeys {
@@ -251,6 +256,8 @@ pub fn run() {
             commands::subtitle_layout::open_subtitle_layout_editor,
             commands::subtitle_layout::show_subtitle_layout_editor,
             commands::subtitle_layout::close_subtitle_layout_editor,
+            commands::hotkey::reinsert::get_reinsert_hotkey,
+            commands::hotkey::reinsert::set_reinsert_hotkey,
             commands::hotkey::register_custom_hotkey,
             commands::hotkey::register_translation_hotkey,
             commands::hotkey::register_assistant_hotkey,

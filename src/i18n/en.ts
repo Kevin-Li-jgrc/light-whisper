@@ -1,6 +1,14 @@
 import type { TranslationSchema } from "./zh";
 
 const en: TranslationSchema = {
+  reinsert: {
+    sent: "Reinsert attempted. Please check the target input.",
+    busy: "Recording, processing or typing is still in progress. Try again shortly.",
+    empty: "No text to reinsert. Complete a dictation first.",
+    releaseKeys: "Release the shortcut keys and try again.",
+    focusChanged: "The target window changed. Focus your input and try again.",
+    failed: "Reinsert failed. Your text is still available; retry or copy it from the main window.",
+  },
   common: {
     copy: "Copy",
     copied: "Copied",
@@ -352,6 +360,10 @@ const en: TranslationSchema = {
     micNotStarted: "Preview not started, device may be in use by another app",
     savedMicUnavailable: "Saved microphone is currently unavailable. Will fall back to system default.",
     inputMethod: "Input Method",
+    reinsertHotkeyLabel: "Reinsert last dictation",
+    noReinsertHotkey: "Click to set shortcut",
+    pressReinsertHotkey: "Press the reinsert shortcut…",
+    reinsertHotkeyHint: "Click the target input, then press this shortcut to insert your last final text without transcribing again. Available until restart; pressing again inserts another copy.",
     directInput: "Direct Input",
     directInputDesc: "Does not use clipboard",
     clipboardPaste: "Clipboard Paste",
