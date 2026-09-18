@@ -9,7 +9,6 @@ use crate::utils::foreground::normalize_whitespace;
 use crate::utils::paths;
 
 const MAX_CORRECTION_PATTERNS: usize = 500;
-const MAX_HOT_WORDS: usize = 300;
 const MAX_SEGMENT_CHARS: usize = 12;
 const MAX_HOT_WORD_CHARS: usize = 24;
 const MAX_USER_HOT_WORD_CHARS: usize = 80;
@@ -496,8 +495,77 @@ fn sanitize_hot_words(profile: &mut UserProfile) -> usize {
     profile
         .hot_words
         .sort_by(|a, b| b.weight.cmp(&a.weight).then(b.use_count.cmp(&a.use_count)));
-    profile.hot_words.truncate(MAX_HOT_WORDS);
     before.saturating_sub(profile.hot_words.len())
+}
+
+#[derive(Debug, Default, serde::Serialize)]
+pub struct HotWordBatchPreview {
+    pub words: Vec<String>,
+    pub duplicates: usize,
+    pub invalid: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct HotWordBatchResult {
+    pub added: usize,
+    pub duplicates: usize,
+    pub invalid: Vec<String>,
+}
+
+/// 按行解析，保留词组内的空格；预览和写入共用同一套校验。
+pub fn preview_hot_words(profile: &UserProfile, text: &str) -> HotWordBatchPreview {
+    let mut seen: HashSet<String> = profile
+        .hot_words
+        .iter()
+        .filter_map(|word| normalize_hot_word_key(&word.text).map(|(_, key)| key))
+        .collect();
+    let mut result = HotWordBatchPreview::default();
+    for line in text.split(['\n', '\r']) {
+        let raw = line.trim();
+        let Some((word, key)) = normalize_hot_word_key(raw) else {
+            continue;
+        };
+        // 不把 Excel 多列误合并成一个词条。
+        if raw.contains('\t') || !is_reasonable_hot_word(&word, HotWordSource::User) {
+            result.invalid.push(raw.to_string());
+        } else if !seen.insert(key) {
+            result.duplicates += 1;
+        } else {
+            result.words.push(word);
+        }
+    }
+    result
+}
+
+/// 在最新画像上重新校验，并一次性追加，不覆盖已有词条的来源和权重。
+pub fn add_hot_words(profile: &mut UserProfile, text: &str) -> HotWordBatchResult {
+    let preview = preview_hot_words(profile, text);
+    let added = preview.words.len();
+    let keys: HashSet<String> = preview
+        .words
+        .iter()
+        .map(|word| word.to_lowercase())
+        .collect();
+    profile.blocked_hot_words.retain(|key| !keys.contains(key));
+    let now = now_secs();
+    profile
+        .hot_words
+        .extend(preview.words.into_iter().map(|text| HotWord {
+            text,
+            weight: 3,
+            source: HotWordSource::User,
+            use_count: 0,
+            last_used: now,
+        }));
+    if added > 0 {
+        sanitize_hot_words(profile);
+        profile.last_updated = now;
+    }
+    HotWordBatchResult {
+        added,
+        duplicates: preview.duplicates,
+        invalid: preview.invalid,
+    }
 }
 
 pub fn add_hot_word(profile: &mut UserProfile, text: String, weight: u8) {
@@ -532,30 +600,27 @@ pub fn add_hot_word(profile: &mut UserProfile, text: String, weight: u8) {
 }
 
 pub fn remove_hot_word(profile: &mut UserProfile, text: &str) {
-    if let Some((_, key)) = normalize_hot_word_key(text) {
-        if !profile
-            .blocked_hot_words
-            .iter()
-            .any(|blocked| blocked == &key)
-        {
-            profile.blocked_hot_words.push(key.clone());
-        }
-        profile.hot_words.retain(|h| {
-            normalize_hot_word_key(&h.text)
-                .map(|(_, k)| k != key)
-                .unwrap_or(false)
-        });
-        profile.vocab_frequency.retain(|word, _| {
-            normalize_hot_word_key(word)
-                .map(|(_, k)| k != key)
-                .unwrap_or(true)
-        });
-    } else {
-        profile.hot_words.retain(|h| h.text != text);
-    }
+    remove_hot_words(profile, &[text.to_string()]);
+}
+
+/// 批量删除只遍历一次词库，并保留“不再自动学回”的现有行为。
+pub fn remove_hot_words(profile: &mut UserProfile, texts: &[String]) -> usize {
+    let keys: HashSet<String> = texts
+        .iter()
+        .filter_map(|text| normalize_hot_word_key(text).map(|(_, key)| key))
+        .collect();
+    let before = profile.hot_words.len();
+    profile
+        .hot_words
+        .retain(|word| !keys.contains(&word.text.to_lowercase()));
+    let removed = before - profile.hot_words.len();
+    profile
+        .vocab_frequency
+        .retain(|word, _| normalize_hot_word_key(word).is_none_or(|(_, key)| !keys.contains(&key)));
+    profile.blocked_hot_words.extend(keys);
     sanitize_blocked_hot_words(profile);
-    sanitize_hot_words(profile);
     profile.last_updated = now_secs();
+    removed
 }
 
 // ============================================================
@@ -848,6 +913,112 @@ mod tests {
                 ("a".to_string(), "z".to_string()),
                 ("x".to_string(), "z".to_string()),
             ]
+        );
+    }
+}
+
+#[cfg(test)]
+mod vocabulary_capacity_tests {
+    use super::*;
+
+    #[test]
+    fn batch_preview_and_add_dedupe_validate_and_preserve_existing_metadata() {
+        let mut profile = UserProfile::default();
+        add_hot_word(&mut profile, "PLC".into(), 5);
+        let input = format!(
+            "  plc\r\nSPC   工作站\nspc 工作站\n狗窝检具\n\n{}\nMES\tHMI",
+            "长".repeat(81)
+        );
+        let preview = preview_hot_words(&profile, &input);
+        assert_eq!(preview.words, ["SPC 工作站", "狗窝检具"]);
+        assert_eq!(preview.duplicates, 2);
+        assert_eq!(preview.invalid.len(), 2);
+        assert_eq!(profile.hot_words.len(), 1);
+        let result = add_hot_words(&mut profile, &input);
+        assert_eq!(result.added, 2);
+        assert_eq!(result.duplicates, 2);
+        assert_eq!(result.invalid.len(), 2);
+        assert_eq!(
+            profile
+                .hot_words
+                .iter()
+                .find(|word| word.text == "PLC")
+                .unwrap()
+                .weight,
+            5
+        );
+    }
+
+    #[test]
+    fn batch_add_rechecks_latest_profile_and_handles_2000_terms() {
+        let mut profile = UserProfile::default();
+        let input = (0..2000)
+            .map(|index| format!("Equipment {index}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(preview_hot_words(&profile, &input).words.len(), 2000);
+        add_hot_word(&mut profile, "Equipment 0".into(), 5);
+        let result = add_hot_words(&mut profile, &input);
+        assert_eq!(result.added, 1999);
+        assert_eq!(result.duplicates, 1);
+        assert_eq!(profile.hot_words.len(), 2000);
+        let mut reloaded: UserProfile =
+            serde_json::from_str(&serialize_profile(&profile).unwrap()).unwrap();
+        normalize_profile(&mut reloaded);
+        assert_eq!(reloaded.hot_words.len(), 2000);
+        assert_eq!(reloaded.get_hot_word_texts(100).len(), 100);
+        assert_eq!(add_hot_words(&mut reloaded, &input).added, 0);
+    }
+
+    #[test]
+    fn batch_delete_blocks_relearning_and_explicit_add_unblocks_only_requested_terms() {
+        let mut profile = UserProfile::default();
+        add_hot_words(&mut profile, "PLC\nMES\nSPC 工作站");
+        profile.vocab_frequency.insert(
+            "PLC".into(),
+            VocabEntry {
+                count: 10,
+                last_seen: 1,
+            },
+        );
+        let removed = remove_hot_words(&mut profile, &["plc".into(), "MES".into(), "PLC".into()]);
+        assert_eq!(removed, 2);
+        assert_eq!(profile.hot_words[0].text, "SPC 工作站");
+        assert!(is_blocked_hot_word(&profile, "PLC"));
+        assert!(profile.vocab_frequency.is_empty());
+        add_hot_words(&mut profile, "PLC");
+        assert!(!is_blocked_hot_word(&profile, "PLC"));
+        assert!(is_blocked_hot_word(&profile, "MES"));
+        assert_eq!(profile.hot_words.len(), 2);
+    }
+
+    #[test]
+    fn vocabulary_preserves_more_than_300_terms_after_reload_and_learning() {
+        let mut profile = UserProfile::default();
+        for index in 0..600 {
+            add_hot_word(&mut profile, format!("Equipment {index}"), 3);
+        }
+        assert_eq!(profile.hot_words.len(), 600);
+        let json = serialize_profile(&profile).unwrap();
+        let mut reloaded: UserProfile = serde_json::from_str(&json).unwrap();
+        normalize_profile(&mut reloaded);
+        assert_eq!(reloaded.hot_words.len(), 600);
+        reloaded.hot_words.push(HotWord {
+            text: "PLC".into(),
+            weight: 5,
+            source: HotWordSource::Learned,
+            use_count: 10,
+            last_used: 1,
+        });
+        cleanup_profile(&mut reloaded);
+        assert_eq!(reloaded.hot_words.len(), 601);
+        assert_eq!(
+            reloaded
+                .hot_words
+                .iter()
+                .filter(|word| word.source == HotWordSource::User)
+                .count(),
+            600
         );
     }
 }

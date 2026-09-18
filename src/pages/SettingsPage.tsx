@@ -4,6 +4,7 @@ import { ArrowLeft, Mic, Monitor, Eye, Keyboard, ClipboardPaste, AudioLines, Zap
 import { toast } from "sonner";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useHotkeyCapture } from "@/hooks/useHotkeyCapture";
+import VocabularyControls from "@/components/settings/VocabularyControls";
 import ReinsertHotkeySettings from "@/components/settings/ReinsertHotkeySettings";
 import { useExclusivePicker } from "@/hooks/useExclusivePicker";
 import { useSystemSettings } from "@/hooks/useSystemSettings";
@@ -21,7 +22,6 @@ import {
   getUserProfile,
   addHotWord,
   listAiModels,
-  removeHotWord,
   setLlmProviderConfig,
   setScreenVisionConfig,
   getScreenVisionApiKey,
@@ -3749,48 +3749,11 @@ export default function SettingsPage({
                 </button>
               </div>
 
-              {/* Hot word list */}
-              {profile && profile.hot_words.length > 0 && (
-                <div style={{
-                  display: "flex", flexWrap: "wrap", gap: 4,
-                  maxHeight: 120, overflow: "auto",
-                  padding: "4px 0",
-                }}>
-                  {[...profile.hot_words]
-                    .sort((a, b) => b.weight - a.weight || b.use_count - a.use_count)
-                    .map((hw) => (
-                    <span
-                      key={hw.text}
-                      style={{
-                        display: "inline-flex", alignItems: "center", gap: 4,
-                        padding: "3px 8px", borderRadius: 12,
-                        background: "var(--color-bg-secondary)",
-                        border: `1px solid ${sourceColors[hw.source] ?? "var(--color-border)"}`,
-                        fontSize: 12, color: "var(--color-text-secondary)",
-                      }}
-                    >
-                      <span style={{
-                        width: 6, height: 6, borderRadius: "50%",
-                        background: sourceColors[hw.source] ?? "var(--color-border)",
-                        flexShrink: 0,
-                      }} />
-                      {hw.text}
-                      <button
-                        type="button"
-                        className="hot-word-remove"
-                        aria-label={t("settings.removeHotWordLabel", { word: hw.text })}
-                        onClick={() => {
-                          removeHotWord(hw.text)
-                            .then(() => refreshProfile())
-                            .catch(() => toast.error(t("settings.hotWordRemoveFailed")));
-                        }}
-                      >
-                        <X size={10} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
+              <VocabularyControls words={profile?.hot_words ?? []} loaded={profile !== null}
+                onSaved={async () => {
+                  const refreshed = await refreshProfile();
+                  if (!refreshed) throw new Error(t("vocabulary.refreshFailed"));
+                }} />
 
               {/* Correction rules management */}
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--color-border-subtle)" }}>

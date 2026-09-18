@@ -1,0 +1,38 @@
+.vocabulary-dialog {
+  width: min(640px, calc(100vw - 32px));
+  height: min(680px, calc(100dvh - 40px));
+  max-width: none;
+  max-height: none;
+  box-sizing: border-box;
+  padding: 18px;
+  margin: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  box-shadow: var(--shadow-xl);
+  font-size: 13px;
+}
+.vocabulary-dialog[open] { display: flex; flex-direction: column; gap: 12px; }
+.vocabulary-dialog::backdrop { background: rgb(0 0 0 / 40%); }
+.vocabulary-dialog h2 { margin: 0; flex: 1; font-size: 16px; }
+.vocabulary-dialog p { margin: 0; line-height: 1.6; }
+.vocabulary-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+.vocabulary-toolbar input[type="search"] { flex: 1; width: 120px; min-width: 100px; }
+.vocabulary-toolbar button { flex-shrink: 0; }
+.vocabulary-muted { color: var(--color-text-secondary); font-size: 12px; }
+.vocabulary-list { flex: 1; overflow-y: auto; min-height: 60px; }
+.vocabulary-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--color-border-subtle); }
+.vocabulary-checkbox { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.vocabulary-checkbox input { flex-shrink: 0; }
+.vocabulary-word { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.vocabulary-pagination { border-top: 1px solid var(--color-border-subtle); padding-top: 12px; }
+.vocabulary-pagination > :first-child { margin-right: auto; }
+.vocabulary-draft-label { display: flex; flex-direction: column; gap: 6px; min-height: 100px; }
+.vocabulary-draft { width: 100%; box-sizing: border-box; min-height: 100px; height: 150px; resize: vertical; max-height: 30dvh; font: inherit; line-height: 1.6; }
+.vocabulary-batch-preview { flex: 1; min-height: 45px; overflow-y: auto; overflow-wrap: anywhere; }
+.vocabulary-preview-words { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.vocabulary-preview-words > span { border-radius: 6px; padding: 4px 8px; background: var(--color-bg-secondary); overflow-wrap: anywhere; }
+.vocabulary-confirm { padding: 10px; border: 1px solid var(--color-border); border-radius: 8px; }
+.vocabulary-delete-preview { max-height: 65px; overflow-y: auto; overflow-wrap: anywhere; margin: 8px 0; }
+.vocabulary-message { color: var(--color-accent); }

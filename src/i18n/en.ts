@@ -1,6 +1,31 @@
 import type { TranslationSchema } from "./zh";
 
 const en: TranslationSchema = {
+  vocabulary: {
+    manage: "Manage vocabulary",
+    total: "{{count}} terms",
+    summary: "{{count}} terms · Showing up to 8; open the manager to search or add in bulk",
+    batchAdd: "Add in bulk",
+    search: "Search all terms",
+    selectPage: "Select this page",
+    deleteSelected: "Delete selected ({{count}})",
+    deletePrompt: "Delete these {{count}} terms? Automatic learning will not add them back, but you can add them manually.",
+    confirmDelete: "Confirm deletion",
+    deleteResult: "Deleted {{count}} terms",
+    empty: "No matching terms",
+    page: "Page {{page}} / {{pages}} · {{count}} terms",
+    previous: "Previous",
+    next: "Next",
+    batchHint: "One term per line. Paste a single Excel column. Blank lines and duplicates are skipped; spaces within terms are preserved. Storage has no term count cap; recognition and polishing still select terms using their own limits.",
+    draft: "Terms to add",
+    preview: "Preview",
+    confirmAdd: "Confirm addition",
+    back: "Back to vocabulary",
+    previewResult: "{{added}} new · {{duplicates}} duplicate · {{invalid}} invalid",
+    addResult: "Added {{added}} · Skipped {{duplicates}} duplicate and {{invalid}} invalid terms",
+    invalidHint: "View invalid terms (up to 80 characters each; single column only)",
+    refreshFailed: "Changes saved, but the list could not refresh. Reopen settings to reload it.",
+  },
   reinsert: {
     sent: "Reinsert attempted. Please check the target input.",
     busy: "Recording, processing or typing is still in progress. Try again shortly.",
