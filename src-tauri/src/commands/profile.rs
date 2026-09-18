@@ -249,6 +249,36 @@ pub async fn set_app_profile_rules(
 }
 
 #[tauri::command]
+pub fn preview_hot_words(
+    state: tauri::State<'_, AppState>,
+    text: String,
+) -> profile_service::HotWordBatchPreview {
+    state.with_profile(|profile| profile_service::preview_hot_words(profile, &text))
+}
+
+#[tauri::command]
+pub async fn add_hot_words(
+    state: tauri::State<'_, AppState>,
+    text: String,
+) -> Result<profile_service::HotWordBatchResult, String> {
+    let (result, profile) =
+        state.update_profile(|profile| profile_service::add_hot_words(profile, &text));
+    profile_service::save_profile_async(&profile).await?;
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn remove_hot_words(
+    state: tauri::State<'_, AppState>,
+    texts: Vec<String>,
+) -> Result<usize, String> {
+    let (removed, profile) =
+        state.update_profile(|profile| profile_service::remove_hot_words(profile, &texts));
+    profile_service::save_profile_async(&profile).await?;
+    Ok(removed)
+}
+
+#[tauri::command]
 pub async fn add_hot_word(
     state: tauri::State<'_, AppState>,
     text: String,

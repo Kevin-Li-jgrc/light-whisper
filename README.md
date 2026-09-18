@@ -144,3 +144,11 @@ versions.
 
 Third-party software, models, and fonts remain under their own licenses. See
 [NOTICE](NOTICE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+### Bulk vocabulary management
+
+Open Settings → Smart Vocabulary → Manage vocabulary to search all terms, browse 50 terms per page, and delete individual terms or selected terms on the current page. Settings shows only eight preview terms.
+
+Choose Add in bulk, paste one term per line (including a single Excel column), preview, then confirm. Spaces within terms are preserved; blank lines are skipped and duplicates are matched case-insensitively with normalized whitespace. Existing weights and sources are preserved. Terms can contain up to 80 characters; multi-column input is reported as invalid.
+
+The 300-term storage cap has been removed. Adding and reloading terms no longer truncates the vocabulary by count. Deleted terms stay blocked from automatic learning until explicitly added again. Storage size is separate from model input limits: recognition and polishing retain their existing term selection limits, so saving more terms does not send all of them on every request.
