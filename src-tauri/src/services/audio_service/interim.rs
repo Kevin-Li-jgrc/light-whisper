@@ -179,6 +179,7 @@ pub fn spawn_interim_loop(
                     previous_hypothesis = Some(result.text.clone());
                     *interim_cache.lock() = Some(crate::state::InterimCache {
                         text: result.text,
+                        raw_text: result.raw_text,
                         language: result.language,
                         sample_count: covered_sample_count,
                     });

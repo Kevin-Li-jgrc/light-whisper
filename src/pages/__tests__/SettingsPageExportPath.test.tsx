@@ -42,6 +42,8 @@ const tauriMock = vi.hoisted(() => ({
   removeCustomProvider: vi.fn(),
   removeHotWord: vi.fn(),
   setAiPolishConfig: vi.fn(),
+  saveProviderApiKey: vi.fn(),
+  deleteProviderApiKey: vi.fn(),
   setAiPolishScreenContextEnabled: vi.fn(),
   setScreenContextEnabled: vi.fn(),
   setAlibabaAsrModel: vi.fn(),
@@ -324,6 +326,45 @@ afterEach(() => {
 });
 
 describe("SettingsPage navigation", () => {
+  it("refreshes global and app input settings immediately after importing a backup", async () => {
+    const imported = { ...profile, input_method: "clipboard", app_profile_rules: [{
+      id: "wechat", name: "微信专用规则", enabled: true, process_name: "Weixin.exe",
+      input_method: "sendInput", ai_polish: "inherit", translation: "inherit", screen_context: "inherit", history: "inherit",
+    }] };
+    tauriMock.importUserProfile.mockImplementation(async () => {
+      tauriMock.getUserProfile.mockResolvedValue(imported);
+    });
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+    await waitFor(() => expect(tauriMock.getUserProfile).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Import Config"), {
+      target: { files: [{ text: async () => JSON.stringify(imported) }] },
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: /settings.clipboardPaste/ })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByText("微信专用规则")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "settings.appRuleEdit" }));
+    expect(screen.getByRole("combobox", { name: "settings.inputMethod" })).toHaveValue("sendInput");
+  });
+
+  it("keeps the existing global choice when saving the new choice fails", async () => {
+    tauriMock.getUserProfile.mockResolvedValue({ ...profile, input_method: "sendInput" });
+    tauriMock.setInputMethodCommand.mockRejectedValue(new Error("disk full"));
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+    await waitFor(() => expect(tauriMock.getUserProfile).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: /settings.clipboardPaste/ }));
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Error: disk full"));
+    expect(screen.getByRole("button", { name: /settings.directInput/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("restores the saved global input method instead of the old local cache", async () => {
+    tauriMock.getUserProfile.mockResolvedValue({ ...profile, input_method: "clipboard" });
+    storageMock.readLocalStorage.mockReturnValue("sendInput");
+    const { default: SettingsPage } = await import("@/pages/SettingsPage");
+    render(<SettingsPage active onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /settings.clipboardPaste/ })).toHaveAttribute("aria-pressed", "true"));
+  });
+
   it("scrolls only the settings content container when a navigation tab is clicked", async () => {
     const { default: SettingsPage } = await import("@/pages/SettingsPage");
     const rendered = render(<SettingsPage active onNavigate={vi.fn()} />);

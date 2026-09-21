@@ -1,6 +1,7 @@
 # OpenCode Go 润色接入
 
-在现有语音识别完成后，使用内置 OpenCode Go 服务商对识别文字进行润色。
+本次修改基于 Kevin-Li-jgrc/light-whisper 的 main 快照 13e3564。
+原始源码压缩包保留在工作区的 light-whisper-source.zip，可用于对照和恢复。
 
 ## 使用
 

@@ -145,6 +145,7 @@ describe("useRecording session-ID filtering (characterization / regression)", ()
 
     await waitFor(() => {
       expect(result.current.transcriptionResult).toBe("新结果");
+      expect(result.current.resultSessionId).toBe(6);
     });
   });
 

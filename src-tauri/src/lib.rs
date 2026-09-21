@@ -279,9 +279,13 @@ pub fn run() {
             commands::ai_polish::set_ai_polish_screen_context_enabled,
             commands::ai_polish::set_screen_context_enabled,
             commands::ai_polish::list_ai_models,
-            commands::ai_polish::set_assistant_api_key,
+            commands::ai_polish::save_provider_api_key,
+            commands::ai_polish::delete_provider_api_key,
             commands::ai_polish::get_assistant_api_key,
             commands::profile::get_user_profile,
+            commands::profile::get_hotword_priority,
+            commands::profile::set_hotword_learning,
+            commands::profile::reset_hotword_learning,
             commands::profile::set_history_settings,
             commands::profile::set_app_profile_rules,
             commands::profile::add_hot_word,
@@ -305,7 +309,10 @@ pub fn run() {
             commands::profile::add_custom_provider,
             commands::profile::update_custom_provider,
             commands::profile::remove_custom_provider,
-            commands::profile::validate_corrections,
+            commands::correction_audit::validate_corrections,
+            commands::correction_audit::get_correction_audit,
+            commands::correction_audit::confirm_correction_deletions,
+            commands::correction_audit::restore_audited_correction,
             commands::profile::set_correction_validation_config,
             commands::profile::remove_correction,
             commands::updater::check_app_update,
@@ -484,22 +491,33 @@ fn spawn_profile_maintenance(app_handle: tauri::AppHandle) {
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
                         .as_secs();
-                    now.saturating_sub(p.last_correction_validation)
-                        >= HOT_WORD_CLEANUP_INTERVAL_SECS
+                    now.saturating_sub(
+                        p.correction_audit
+                            .last_attempt
+                            .max(p.last_correction_validation),
+                    ) >= HOT_WORD_CLEANUP_INTERVAL_SECS
                 })
             };
 
             if should_validate {
                 let state = app_handle.state::<AppState>();
-                match commands::profile::run_correction_validation(&app_handle, state.inner()).await
+                match commands::correction_audit::run_correction_validation(
+                    &app_handle,
+                    state.inner(),
+                    false,
+                )
+                .await
                 {
-                    Ok(removed) if removed > 0 => {
-                        log::info!("定期 LLM 纠错审核完成：删除 {} 条", removed);
+                    Ok(report) => {
+                        log::info!(
+                            "定期 LLM 纠错审核：建议 {} 条，失败 {} 条；等待用户确认",
+                            report.suggested,
+                            report.failed
+                        );
                     }
                     Err(err) => {
                         log::warn!("定期 LLM 纠错审核失败: {}", err);
                     }
-                    _ => {}
                 }
             }
         }

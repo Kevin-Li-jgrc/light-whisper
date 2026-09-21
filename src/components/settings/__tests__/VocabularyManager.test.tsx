@@ -11,6 +11,8 @@ const words: HotWord[] = Array.from({ length: 650 }, (_, index) => ({
   text: `设备 ${String(index).padStart(3, "0")}`, weight: 3, source: "user", use_count: 0, last_used: 0,
 }));
 const button = (name: string) => screen.getByRole("button", { name: new RegExp(name) });
+const priorityApi = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn(), reset: vi.fn() }));
+vi.mock("@/api/hotwordPriority", () => ({ getHotwordPriority: priorityApi.get, setHotwordLearning: priorityApi.set, resetHotwordLearning: priorityApi.reset }));
 beforeEach(() => {
   vi.clearAllMocks();
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
@@ -19,12 +21,32 @@ beforeEach(() => {
   api.preview.mockResolvedValue({ words: ["SPC 工作站", "狗窝检具"], duplicates: 1, invalid: ["x".repeat(81)] });
   api.add.mockResolvedValue({ added: 2, duplicates: 1, invalid: ["x".repeat(81)] });
   api.remove.mockResolvedValue(1);
+  priorityApi.get.mockResolvedValue({ enabled: true, words: words.map((word, i) => ({
+    text: word.text, source: word.source, rank: i + 1, base_weight: 3, effective_weight: 3,
+    score: 0, uses: 0, corrections: 0, last_used: 0, in_asr: i < 100, next_threshold: 15, events: [],
+  })) });
+  priorityApi.set.mockResolvedValue(undefined);
+  priorityApi.reset.mockResolvedValue(undefined);
 });
 const open = () => render(<VocabularyManager words={words} onSaved={api.saved} onClose={api.close} />);
 
 describe("vocabulary manager", () => {
-  it("paginates hundreds of terms and searches the entire vocabulary", () => {
+  it("shows global rank after search and preserves expanded details on refresh", async () => {
     open();
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "设备 649" } });
+    await screen.findByText("#650");
+    fireEvent.click(button("hotwordPriority.details"));
+    expect(screen.getByText("hotwordPriority.noEvents")).toBeInTheDocument();
+    fireEvent.click(button("hotwordPriority.refresh"));
+    await waitFor(() => expect(priorityApi.get).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("searchbox")).toHaveValue("设备 649");
+    expect(screen.getByText("hotwordPriority.noEvents")).toBeInTheDocument();
+    fireEvent.click(button("hotwordPriority.reset"));
+    await waitFor(() => expect(priorityApi.reset).toHaveBeenCalledWith("设备 649"));
+  });
+  it("paginates hundreds of terms and searches the entire vocabulary", async () => {
+    open();
+    await screen.findByText("#1");
     expect(screen.getAllByRole("checkbox")).toHaveLength(51);
     expect(screen.getByText("设备 000")).toBeInTheDocument();
     expect(screen.queryByText("设备 050")).not.toBeInTheDocument();

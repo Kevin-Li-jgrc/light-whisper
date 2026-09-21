@@ -1,0 +1,6 @@
+{
+  "build": {
+    "beforeBuildCommand": "node scripts/verify_engine_archive.mjs && pnpm exec tsc && pnpm exec vite build --outDir .build-tools/api-key-ui-fixed/dist",
+    "frontendDist": "../.build-tools/api-key-ui-fixed/dist"
+  }
+}

@@ -5,6 +5,7 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 
 mod build_support;
+mod frontend_build_support;
 
 use build_support::{select_engine_archive, ENGINE_ARCHIVE_CANDIDATES};
 
@@ -40,6 +41,25 @@ fn main() {
         env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR should be set by Cargo"),
     );
     let allow_placeholder = env::var("PROFILE").map_or(true, |profile| profile != "release");
+    if !allow_placeholder {
+        // 与 Tauri 使用同一套平台配置读取规则，并检查 CLI 合并配置中的前端入口。
+        let target = tauri_utils::platform::Target::from_triple(&env::var("TARGET").unwrap());
+        let (config, paths) = tauri_utils::config::parse::read_from(target, &manifest_dir)
+            .expect("无法读取 Tauri 配置");
+        for path in paths {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+        println!("cargo:rerun-if-env-changed=TAURI_CONFIG");
+        let overlay: serde_json::Value = env::var("TAURI_CONFIG")
+            .map(|value| serde_json::from_str(&value).expect("无法读取合并配置"))
+            .unwrap_or(serde_json::Value::Null);
+        let frontend_dist = overlay
+            .pointer("/build/frontendDist")
+            .or_else(|| config.pointer("/build/frontendDist"))
+            .unwrap_or(&serde_json::Value::Null);
+        frontend_build_support::validate_frontend_dist(&manifest_dir, frontend_dist)
+            .unwrap_or_else(|message| panic!("{message}"));
+    }
     let engine_archive = select_engine_archive(&manifest_dir, allow_placeholder)
         .unwrap_or_else(|message| panic!("{message}"));
     println!(

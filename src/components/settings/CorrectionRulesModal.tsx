@@ -6,8 +6,8 @@ import { useTranslation } from "react-i18next";
 import {
   removeCorrection,
   setCorrectionValidationConfig,
-  validateCorrections,
 } from "@/api/tauri";
+import CorrectionAuditPanel from "./CorrectionAuditPanel";
 import type { CorrectionPattern, UserProfile } from "@/types";
 
 interface CorrectionRulesModalProps {
@@ -21,10 +21,6 @@ interface CorrectionRulesModalProps {
   setValidationProvider: (value: string | null) => void;
   validationModel: string;
   setValidationModel: (value: string) => void;
-  validationRunning: boolean;
-  setValidationRunning: (value: boolean) => void;
-  validationResult: string | null;
-  setValidationResult: (value: string | null) => void;
   returnFocusRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
   onRefreshProfile: () => void;
@@ -47,10 +43,6 @@ export default function CorrectionRulesModal({
   setValidationProvider,
   validationModel,
   setValidationModel,
-  validationRunning,
-  setValidationRunning,
-  validationResult,
-  setValidationResult,
   returnFocusRef,
   onClose,
   onRefreshProfile,
@@ -204,7 +196,7 @@ export default function CorrectionRulesModal({
           ))}
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "8px 16px" }}>
+        <div style={{ flex: "0 0 auto", maxHeight: "24vh", overflowY: "auto", padding: "8px 16px" }}>
           {filtered.length === 0 ? (
             <p style={{ fontSize: 12, color: "var(--color-text-tertiary)", textAlign: "center", padding: "24px 0" }}>
               {t("settings.correctionEmpty")}
@@ -255,7 +247,7 @@ export default function CorrectionRulesModal({
           )}
         </div>
 
-        <div style={{ padding: "12px 16px 14px", borderTop: "1px solid var(--color-border-subtle)" }}>
+        <div className="correction-audit-container" style={{ padding: "12px 16px 14px", borderTop: "1px solid var(--color-border-subtle)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <label id="correction-validation-label" style={{ fontSize: 13, color: "var(--color-text-primary)", flex: 1 }}>
               {t("settings.correctionValidationToggle")}
@@ -279,8 +271,7 @@ export default function CorrectionRulesModal({
             {t("settings.correctionValidationHint")}
           </p>
 
-          {validationEnabled && (
-            <>
+          <>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <label id="correction-validation-model-label" style={{ fontSize: 12, color: "var(--color-text-secondary)", flex: 1 }}>
                   {t("settings.correctionValidationSeparateModel")}
@@ -343,43 +334,11 @@ export default function CorrectionRulesModal({
                 </div>
               )}
 
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button
-                  className="test-btn"
-                  disabled={validationRunning}
-                  onClick={async () => {
-                    setValidationRunning(true);
-                    setValidationResult(null);
-                    try {
-                      const removed = await validateCorrections();
-                      setValidationResult(removed > 0
-                        ? t("settings.correctionValidationRemoved", { count: removed })
-                        : t("settings.correctionValidationAllValid"));
-                    } catch (error) {
-                      setValidationResult(t("settings.correctionValidationFailed", {
-                        error: error instanceof Error ? error.message : String(error),
-                      }));
-                    } finally {
-                      setValidationRunning(false);
-                      onRefreshProfile();
-                    }
-                  }}
-                  style={{ padding: "5px 12px", fontSize: 12 }}
-                >
-                  {validationRunning
-                    ? t("settings.correctionValidationRunning")
-                    : t("settings.correctionValidationRun")}
-                </button>
-                <span
-                  role="status"
-                  aria-atomic="true"
-                  style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}
-                >
-                  {validationResult ?? ""}
-                </span>
-              </div>
-            </>
-          )}
+          </>
+          <CorrectionAuditPanel
+            configKey={JSON.stringify([validationUseSeparateModel, validationProvider, validationModel, profile?.llm_provider])}
+            onRefreshProfile={onRefreshProfile}
+          />
         </div>
       </div>
     </div>

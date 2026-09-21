@@ -131,6 +131,7 @@ impl RecordingTrigger {
 #[derive(Clone)]
 pub struct InterimCache {
     pub text: String,
+    pub raw_text: Option<String>,
     pub sample_count: usize,
     pub language: Option<String>,
 }
@@ -380,6 +381,7 @@ impl RecordingState {
 /// 用户配置 + 各类 AI / ASR API key + 能力缓存
 #[derive(Default)]
 pub struct ProfileState {
+    pub correction_audit_running: AtomicBool,
     pub user_profile: Arc<parking_lot::Mutex<UserProfile>>,
     pub ai_polish_enabled: Arc<AtomicBool>,
     pub ai_polish_api_key: Arc<parking_lot::Mutex<String>>,
@@ -538,12 +540,16 @@ impl AppState {
     pub fn update_profile<R>(&self, f: impl FnOnce(&mut UserProfile) -> R) -> (R, UserProfile) {
         let mut guard = self.profile.user_profile.lock();
         let result = f(&mut guard);
+        guard.persistence_revision = crate::services::profile_service::next_revision();
         (result, guard.clone())
     }
 
     /// 修改 profile，不返回克隆（无需持久化时使用）
     pub fn update_profile_mut<R>(&self, f: impl FnOnce(&mut UserProfile) -> R) -> R {
-        f(&mut self.profile.user_profile.lock())
+        let mut profile = self.profile.user_profile.lock();
+        let result = f(&mut profile);
+        profile.persistence_revision = crate::services::profile_service::next_revision();
+        result
     }
 
     pub fn active_llm_provider(&self) -> String {

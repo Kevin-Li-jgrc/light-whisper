@@ -51,6 +51,9 @@ use protocol::{read_json_response, read_json_response_matching, ServerResponse};
 pub struct TranscriptionResult {
     /// 转写得到的文本
     pub text: String,
+    /// 仅内部学习使用，保留本地热词纠偏前的文字。
+    #[serde(skip)]
+    pub raw_text: Option<String>,
     /// 音频时长（秒）
     pub duration: Option<f64>,
     /// 是否成功
@@ -670,6 +673,7 @@ fn server_response_to_transcription_result(
     state: &AppState,
     mut response: ServerResponse,
 ) -> TranscriptionResult {
+    let raw_text = response.text.clone();
     if response.success == Some(true) {
         if response
             .engine
@@ -693,6 +697,7 @@ fn server_response_to_transcription_result(
 
         TranscriptionResult {
             text: response.text.unwrap_or_default(),
+            raw_text,
             duration: response.duration,
             success: true,
             error: None,
@@ -705,6 +710,7 @@ fn server_response_to_transcription_result(
         TranscriptionResult {
             text: String::new(),
             duration: None,
+            raw_text: None,
             success: false,
             error: Some(error_msg),
             language: None,
@@ -1386,6 +1392,14 @@ mod tests {
         .unwrap();
         let qwen_result = server_response_to_transcription_result(&state, qwen_response);
         assert_eq!(qwen_result.text, "请用 github 打开 openclaw。");
+        assert_eq!(
+            qwen_result.raw_text.as_deref(),
+            Some("请用 get hub 打开 open cloud。")
+        );
+        assert!(serde_json::to_value(&qwen_result)
+            .unwrap()
+            .get("raw_text")
+            .is_none());
     }
 
     #[test]

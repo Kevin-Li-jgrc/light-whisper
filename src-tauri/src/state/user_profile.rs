@@ -99,6 +99,15 @@ impl SubtitleTiming {
 /// 用户画像
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UserProfile {
+    /// 全局输入方式；缺失表示旧配置，首次启动从本机缓存迁移。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_method: Option<InputMethod>,
+    #[serde(default)]
+    pub correction_audit: crate::services::correction_audit::AuditData,
+    #[serde(skip)]
+    pub persistence_revision: u64,
+    #[serde(default)]
+    pub hotword_learning: crate::services::hotword_learning::Learning,
     #[serde(default)]
     pub subtitle_timing: SubtitleTiming,
     pub hot_words: Vec<HotWord>,
@@ -210,6 +219,31 @@ fn default_app_rule_enabled() -> bool {
     true
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum AppInputMethodOverride {
+    #[default]
+    Inherit,
+    SendInput,
+    Clipboard,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum InputMethod {
+    SendInput,
+    Clipboard,
+}
+
+impl InputMethod {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SendInput => "sendInput",
+            Self::Clipboard => "clipboard",
+        }
+    }
+}
+
 /// 针对一个 Windows 进程（并可进一步限定窗口标题）的听写覆盖规则。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppProfileRule {
@@ -220,6 +254,8 @@ pub struct AppProfileRule {
     pub process_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_title_contains: Option<String>,
+    #[serde(default)]
+    pub input_method: AppInputMethodOverride,
     #[serde(default)]
     pub ai_polish: AppRuleOverride,
     #[serde(default)]
@@ -242,6 +278,7 @@ impl Default for AppProfileRule {
             enabled: true,
             process_name: String::new(),
             window_title_contains: None,
+            input_method: AppInputMethodOverride::Inherit,
             ai_polish: AppRuleOverride::Inherit,
             translation: AppTranslationOverride::Inherit,
             translation_target: None,
@@ -254,6 +291,7 @@ impl Default for AppProfileRule {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResolvedAppProfile {
+    pub input_method: AppInputMethodOverride,
     pub rule_id: Option<String>,
     pub rule_name: Option<String>,
     pub ai_polish_enabled: Option<bool>,
@@ -307,6 +345,7 @@ impl AppProfileRule {
                 .map(|value| Some(value.to_string())),
         };
         ResolvedAppProfile {
+            input_method: self.input_method,
             rule_id: Some(self.id.clone()),
             rule_name: Some(self.name.clone()),
             ai_polish_enabled: bool_override(self.ai_polish),
@@ -790,14 +829,49 @@ impl UserProfile {
             .unwrap_or_default()
     }
 
+    /// 输出时按实际前台应用匹配；首条规则继承时直接使用全局值，不继续匹配。
+    pub fn resolve_input_method(
+        &self,
+        process_name: &str,
+        window_title: &str,
+        global: &str,
+    ) -> String {
+        match self
+            .resolve_app_profile(process_name, window_title)
+            .input_method
+        {
+            AppInputMethodOverride::Inherit => self.effective_input_method(global).as_str(),
+            AppInputMethodOverride::SendInput => "sendInput",
+            AppInputMethodOverride::Clipboard => "clipboard",
+        }
+        .to_string()
+    }
+
+    pub fn effective_input_method(&self, legacy: &str) -> InputMethod {
+        self.input_method.unwrap_or(if legacy == "clipboard" {
+            InputMethod::Clipboard
+        } else {
+            InputMethod::SendInput
+        })
+    }
+
+    /// 启动迁移只补齐缺失值，不能让旧缓存覆盖已导入的配置。
+    pub fn set_input_method(&mut self, method: InputMethod, only_if_unset: bool) -> InputMethod {
+        let selected = if only_if_unset {
+            self.input_method.unwrap_or(method)
+        } else {
+            method
+        };
+        self.input_method = Some(selected);
+        selected
+    }
+
     /// 获取按权重排序的热词文本列表（用于 ASR 注入）
     pub fn get_hot_word_texts(&self, limit: usize) -> Vec<String> {
-        let mut words: Vec<&HotWord> = self.hot_words.iter().collect();
-        words.sort_by(|a, b| b.weight.cmp(&a.weight).then(b.use_count.cmp(&a.use_count)));
-        words
+        crate::services::hotword_learning::ranked(self, crate::services::hotword_learning::now())
             .into_iter()
             .take(limit)
-            .map(|w| w.text.clone())
+            .map(|(w, _, _)| w.text.clone())
             .collect()
     }
 
@@ -834,6 +908,92 @@ mod tests {
         HistorySettings, LlmProviderConfig, LlmReasoningMode, PolishStructureLevel,
         SelectionAssistantConfig, UserProfile,
     };
+
+    #[test]
+    fn app_input_method_survives_save_and_load() {
+        for method in ["inherit", "sendInput", "clipboard"] {
+            let rule: AppProfileRule = serde_json::from_value(serde_json::json!({
+                "id": "wechat", "name": "微信", "process_name": "Weixin.exe",
+                "input_method": method
+            }))
+            .unwrap();
+            let saved = serde_json::to_value(&rule).unwrap();
+            assert_eq!(saved["input_method"], method);
+        }
+    }
+
+    #[test]
+    fn app_input_method_uses_first_enabled_matching_rule_and_global_fallback() {
+        let rules = serde_json::from_value(serde_json::json!([
+            {"id":"off", "name":"", "enabled":false, "process_name":"Weixin.exe", "input_method":"sendInput"},
+            {"id":"specific", "name":"", "process_name":"Weixin.exe", "window_title_contains":"工作", "input_method":"sendInput"},
+            {"id":"wechat", "name":"", "process_name":"Weixin.exe", "input_method":"clipboard"},
+            {"id":"browser", "name":"", "process_name":"chrome.exe", "input_method":"inherit"},
+            {"id":"later", "name":"", "process_name":"chrome.exe", "input_method":"clipboard"}
+        ])).unwrap();
+        let profile = UserProfile {
+            app_profile_rules: rules,
+            ..Default::default()
+        };
+        for (process, title, global, expected) in [
+            ("WEIXIN.EXE", "朋友", "sendInput", "clipboard"),
+            ("weixin", "工作群", "clipboard", "sendInput"),
+            ("chrome.exe", "网页", "sendInput", "sendInput"),
+            ("chrome.exe", "网页", "clipboard", "clipboard"),
+            ("notepad.exe", "", "clipboard", "clipboard"),
+            ("notepad.exe", "", "sendInput", "sendInput"),
+            ("", "", "sendInput", "sendInput"),
+        ] {
+            assert_eq!(
+                profile.resolve_input_method(process, title, global),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn app_input_method_legacy_rule_inherits_and_invalid_value_is_rejected() {
+        let legacy = serde_json::json!({"id":"legacy", "name":"", "process_name":"Weixin.exe"});
+        let rule: AppProfileRule = serde_json::from_value(legacy.clone()).unwrap();
+        let profile = UserProfile {
+            app_profile_rules: vec![rule],
+            ..Default::default()
+        };
+        assert_eq!(
+            profile.resolve_input_method("Weixin.exe", "", "sendInput"),
+            "sendInput"
+        );
+        assert_eq!(
+            profile.resolve_input_method("Weixin.exe", "", "clipboard"),
+            "clipboard"
+        );
+        let mut invalid = legacy;
+        invalid["input_method"] = serde_json::json!("unknown");
+        assert!(serde_json::from_value::<AppProfileRule>(invalid).is_err());
+    }
+
+    #[test]
+    fn app_input_method_follows_current_target_when_reinserting_same_text() {
+        let profile = UserProfile {
+            app_profile_rules: serde_json::from_value(serde_json::json!([
+                {"id":"wechat", "name":"", "process_name":"Weixin.exe", "input_method":"clipboard"}
+            ]))
+            .unwrap(),
+            ..Default::default()
+        };
+        assert_eq!(
+            profile.resolve_input_method("chrome.exe", "网页", "sendInput"),
+            "sendInput"
+        );
+        assert_eq!(
+            profile.resolve_input_method("Weixin.exe", "微信", "sendInput"),
+            "clipboard"
+        );
+        assert_eq!(
+            profile.resolve_input_method("chrome.exe", "网页", "sendInput"),
+            "sendInput"
+        );
+    }
 
     fn custom_provider(id: &str) -> CustomProvider {
         CustomProvider {

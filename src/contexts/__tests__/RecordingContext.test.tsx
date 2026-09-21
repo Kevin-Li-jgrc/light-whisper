@@ -22,11 +22,11 @@ const storageMock = vi.hoisted(() => ({
 }));
 
 const tauriMock = vi.hoisted(() => ({
-  setInputMethodCommand: vi.fn<(method: string) => Promise<void>>(),
+  setInputMethodCommand: vi.fn<(method: string, onlyIfUnset?: boolean) => Promise<string>>(),
   setInputDevice: vi.fn<(name?: string | null) => Promise<void>>(),
   setSoundEnabled: vi.fn<(enabled: boolean) => Promise<void>>(),
   setRecordingMode: vi.fn<(toggle: boolean) => Promise<void>>(),
-  setAiPolishConfig: vi.fn<(enabled: boolean, apiKey: string) => Promise<void>>(),
+  setAiPolishConfig: vi.fn<(enabled: boolean) => Promise<void>>(),
   getAiPolishApiKey: vi.fn<() => Promise<string>>(),
 }));
 
@@ -107,7 +107,7 @@ beforeEach(() => {
   storageMock.readLocalStorage.mockImplementation(() => null);
 
   // Default every Tauri call to succeed so tests opt-in to failures.
-  tauriMock.setInputMethodCommand.mockResolvedValue(undefined);
+  tauriMock.setInputMethodCommand.mockResolvedValue("sendInput");
   tauriMock.setInputDevice.mockResolvedValue(undefined);
   tauriMock.setSoundEnabled.mockResolvedValue(undefined);
   tauriMock.setRecordingMode.mockResolvedValue(undefined);
@@ -130,6 +130,15 @@ async function flushPromises() {
 }
 
 describe("RecordingProvider startup sync error reporting", () => {
+  it("migrates legacy cache only when unset and caches the authoritative saved method", async () => {
+    storageMock.readLocalStorage.mockImplementation((key) => key === INPUT_METHOD_KEY ? "clipboard" : null);
+    tauriMock.setInputMethodCommand.mockResolvedValue("sendInput");
+    render(<RecordingProvider><div /></RecordingProvider>);
+    await flushPromises();
+    expect(tauriMock.setInputMethodCommand).toHaveBeenCalledWith("clipboard", true);
+    expect(storageMock.writeLocalStorage).toHaveBeenCalledWith(INPUT_METHOD_KEY, "sendInput");
+  });
+
   it("reports setInputMethodCommand rejection via console.error", async () => {
     storageMock.readLocalStorage.mockImplementation(
       (key) => (key === INPUT_METHOD_KEY ? STORAGE_TRIGGERS[key] : null),
@@ -153,11 +162,11 @@ describe("RecordingProvider startup sync error reporting", () => {
     expect(logged).toMatch(/setInputMethod|set_input_method/i);
   });
 
-  it("reports getAiPolishApiKey rejection via console.error and does not throw", async () => {
+  it("reports polish toggle rejection via console.error and does not throw", async () => {
     storageMock.readLocalStorage.mockImplementation(
       (key) => (key === AI_POLISH_ENABLED_KEY ? STORAGE_TRIGGERS[key] : null),
     );
-    tauriMock.getAiPolishApiKey.mockRejectedValueOnce(
+    tauriMock.setAiPolishConfig.mockRejectedValueOnce(
       new Error("keyring locked"),
     );
 

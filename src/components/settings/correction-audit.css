@@ -1,0 +1,21 @@
+.correction-audit { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-border); font-size: 12px; line-height: 1.6; min-width: 0; overflow-wrap: anywhere; }
+.correction-audit h3 { font-size: 14px; margin: 0 0 6px; }
+.correction-audit p { margin: 6px 0; }
+.audit-hint { color: var(--color-text-secondary); }
+.audit-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.audit-rows { max-height: 260px; overflow-y: auto; margin: 10px 0; }
+.audit-row { padding: 10px; margin: 6px 0; background: var(--color-bg-tertiary); border: 1px solid var(--color-border); border-radius: 8px; }
+.audit-rule { display: flex; align-items: flex-start; gap: 8px; }
+.audit-rule input { flex-shrink: 0; margin-top: 4px; }
+.audit-verdict { color: var(--color-text-secondary); font-size: 11px; }
+.audit-error { color: var(--color-error, #d9534f); }
+.audit-notice { white-space: pre-wrap; }
+.audit-confirm { padding: 10px; margin-top: 10px; border: 1px solid var(--color-accent); border-radius: 8px; }
+.audit-confirm ul { max-height: 140px; overflow-y: auto; padding-left: 20px; }
+.audit-confirm h4 { margin: 0; }
+.audit-deleted { margin-top: 14px; }
+.audit-deleted summary { cursor: pointer; font-weight: 600; }
+.audit-deleted > .audit-row { max-width: 100%; }
+@media (max-width: 580px) { .correction-audit .audit-actions > button { flex: 1 1 auto; } }
+.correction-dialog { overflow-y: auto; }
+.correction-dialog > div { flex-shrink: 0; }

@@ -20,6 +20,7 @@ interface UseRecordingReturn {
   transcriptionResult: string | null;
   setTranscriptionResult: (text: string) => void;
   originalAsrText: string | null;
+  resultSessionId: number;
   editBaselineText: string | null;
   setEditBaselineText: (text: string | null) => void;
   durationSec: number | null;
@@ -81,6 +82,7 @@ export function useRecording(): UseRecordingReturn {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [transcriptionResult, setTranscriptionResult] = useState<string | null>(null);
+  const [resultSessionId, setResultSessionId] = useState(0);
   const [originalAsrText, setOriginalAsrText] = useState<string | null>(null);
   const [editBaselineText, setEditBaselineText] = useState<string | null>(null);
   const [durationSec, setDurationSec] = useState<number | null>(null);
@@ -133,6 +135,7 @@ export function useRecording(): UseRecordingReturn {
 
     if (!staleForDisplay && sessionId >= latestDisplayedFinalSessionIdRef.current) {
       latestDisplayedFinalSessionIdRef.current = sessionId;
+      setResultSessionId(sessionId);
       setTranscriptionResult(text);
       setOriginalAsrText(rawText);
       setEditBaselineText(text);
@@ -196,7 +199,7 @@ export function useRecording(): UseRecordingReturn {
   return {
     isStarting, isRecording, isProcessing, startRecording, stopRecording,
     error, transcriptionResult, setTranscriptionResult,
-    originalAsrText, editBaselineText, setEditBaselineText,
+    originalAsrText, resultSessionId, editBaselineText, setEditBaselineText,
     durationSec, charCount, detectedLanguage, editGrabStatus, history,
     timing,
     resultMode,

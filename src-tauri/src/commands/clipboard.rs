@@ -301,6 +301,30 @@ pub async fn paste_text_impl(
     paste_text_unlocked(app_handle, text, method).await
 }
 
+/// 普通听写在取得输出锁后匹配前台应用，避免使用录音开始时的旧目标。
+pub async fn paste_dictation_text(
+    app_handle: &tauri::AppHandle,
+    text: &str,
+) -> Result<String, AppError> {
+    let state = app_handle.state::<crate::state::AppState>();
+    let _output = state.recording.reinsert.output_lock.lock().await;
+    let method = resolve_target_input_method(app_handle);
+    paste_text_unlocked(app_handle, text, &method).await
+}
+
+/// 补输入已持有输出锁，复用同一规则解析，不改变显式指定方式的粘贴操作。
+pub(super) fn resolve_target_input_method(app_handle: &tauri::AppHandle) -> String {
+    let state = app_handle.state::<crate::state::AppState>();
+    let global = state.ui.input_method.lock().clone();
+    match crate::utils::foreground::get_foreground_app() {
+        Some(target) => state.with_profile(|profile| {
+            profile.resolve_input_method(&target.process_name, &target.window_title, &global)
+        }),
+        None => state
+            .with_profile(|profile| profile.effective_input_method(&global).as_str().to_string()),
+    }
+}
+
 pub(super) async fn paste_text_unlocked(
     app_handle: &tauri::AppHandle,
     text: &str,

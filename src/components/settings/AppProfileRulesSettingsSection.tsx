@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { setAppProfileRules } from "@/api/tauri";
 import type {
+  AppInputMethodOverride,
   AppProfileRule,
   AppRuleOverride,
   AppTranslationOverride,
@@ -23,6 +24,7 @@ function createRule(): AppProfileRule {
     enabled: true,
     process_name: "",
     window_title_contains: null,
+    input_method: "inherit",
     ai_polish: "inherit",
     translation: "inherit",
     translation_target: null,
@@ -97,6 +99,21 @@ function RuleEditor({ value, onChange, onCancel, onSubmit }: {
         <label className="settings-column app-rule-field">
           <span>{t("settings.appRuleAiPolish")}</span>
           <OverrideSelect value={value.ai_polish} onChange={(ai_polish) => patch({ ai_polish })} />
+        </label>
+        <label className="settings-column app-rule-field">
+          <span>{t("settings.inputMethod")}</span>
+          <select
+            className="settings-input app-rule-select"
+            value={value.input_method ?? "inherit"}
+            aria-label={t("settings.inputMethod")}
+            aria-describedby="app-rule-input-method-hint"
+            onChange={(event) => patch({ input_method: event.target.value as AppInputMethodOverride })}
+          >
+            <option value="inherit">{t("settings.appRuleInherit")}</option>
+            <option value="sendInput">{t("settings.directInput")}</option>
+            <option value="clipboard">{t("settings.clipboardPaste")}</option>
+          </select>
+          <span id="app-rule-input-method-hint" className="settings-hint settings-hint-flush">{t("settings.appRuleInputMethodHint")}</span>
         </label>
         <label className="settings-column app-rule-field">
           <span>{t("settings.appRuleScreenContext")}</span>
@@ -190,6 +207,7 @@ export default function AppProfileRulesSettingsSection({ profile, onSaved }: App
     if (!editing) return;
     const normalized: AppProfileRule = {
       ...editing,
+      input_method: editing.input_method ?? "inherit",
       name: editing.name.trim(),
       process_name: editing.process_name.trim(),
       window_title_contains: editing.window_title_contains?.trim() || null,
