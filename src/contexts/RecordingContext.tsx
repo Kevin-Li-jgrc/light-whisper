@@ -2,8 +2,8 @@ import { createContext, useContext, useEffect, useMemo, type ReactNode } from "r
 import { useRecording } from "@/hooks/useRecording";
 import { useModelStatus, type ModelStage } from "@/hooks/useModelStatus";
 import { useHotkey } from "@/hooks/useHotkey";
-import { setInputMethodCommand, setAiPolishConfig, getAiPolishApiKey, setInputDevice, setSoundEnabled, setRecordingMode } from "@/api/tauri";
-import { readLocalStorage } from "@/lib/storage";
+import { setInputMethodCommand, setAiPolishConfig, setInputDevice, setSoundEnabled, setRecordingMode } from "@/api/tauri";
+import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import { INPUT_METHOD_KEY, INPUT_DEVICE_STORAGE_KEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
 import type {
   EditGrabStatus,
@@ -24,6 +24,7 @@ interface RecordingContextValue {
   transcriptionResult: string | null;
   setTranscriptionResult: (text: string) => void;
   originalAsrText: string | null;
+  resultSessionId: number;
   editBaselineText: string | null;
   setEditBaselineText: (text: string | null) => void;
   durationSec: number | null;
@@ -64,7 +65,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     error: recordingError,
     transcriptionResult,
     setTranscriptionResult,
-    originalAsrText,
+    originalAsrText, resultSessionId,
     editBaselineText,
     setEditBaselineText,
     durationSec,
@@ -108,12 +109,13 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     const aiPolishEnabled = readLocalStorage(AI_POLISH_ENABLED_KEY) === "true";
 
     const tasks: Array<{ name: string; run: () => Promise<unknown> }> = [];
-    if (storedInputMethod === "clipboard") {
-      tasks.push({
-        name: "setInputMethodCommand",
-        run: () => setInputMethodCommand("clipboard"),
-      });
-    }
+    tasks.push({
+      name: "setInputMethodCommand",
+      run: async () => {
+        const method = await setInputMethodCommand(storedInputMethod === "clipboard" ? "clipboard" : "sendInput", true);
+        writeLocalStorage(INPUT_METHOD_KEY, method);
+      },
+    });
     if (storedInputDevice != null) {
       tasks.push({
         name: "setInputDevice",
@@ -134,11 +136,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     }
     if (aiPolishEnabled) {
       tasks.push({
-        name: "getAiPolishApiKey/setAiPolishConfig",
-        run: () =>
-          getAiPolishApiKey().then((apiKey) =>
-            setAiPolishConfig(aiPolishEnabled, apiKey),
-          ),
+        name: "setAiPolishConfig",
+        run: () => setAiPolishConfig(aiPolishEnabled),
       });
     }
 
@@ -165,7 +164,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     recordingError,
     transcriptionResult,
     setTranscriptionResult,
-    originalAsrText,
+    originalAsrText, resultSessionId,
     editBaselineText,
     setEditBaselineText,
     durationSec,
@@ -192,7 +191,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     hotkeyDiagnostic,
   }), [
     isStarting, isRecording, isProcessing, startRecording, stopRecording, recordingError,
-    transcriptionResult, setTranscriptionResult, originalAsrText,
+    transcriptionResult, setTranscriptionResult, originalAsrText, resultSessionId,
     editBaselineText, setEditBaselineText,
     durationSec, charCount, detectedLanguage, editGrabStatus, timing, history, resultMode,
     stage, isReady, device, gpuName, downloadProgress, downloadMessage, isDownloading,

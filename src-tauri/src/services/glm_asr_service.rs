@@ -110,6 +110,7 @@ pub async fn transcribe(
     if let Some(code) = parsed.code {
         if code != 0 {
             return Ok(TranscriptionResult {
+                raw_text: None,
                 text: String::new(),
                 duration: None,
                 success: false,
@@ -120,6 +121,7 @@ pub async fn transcribe(
     }
 
     Ok(TranscriptionResult {
+        raw_text: None,
         text: parsed.text.unwrap_or_default(),
         duration: None,
         success: true,

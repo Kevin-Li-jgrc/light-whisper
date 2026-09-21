@@ -1552,6 +1552,79 @@ pub fn build_auth_headers(
     Ok(headers)
 }
 
+pub fn provider_key_entry(provider: &str) -> Result<keyring::Entry, String> {
+    if provider.trim().is_empty() {
+        return Err("服务商不能为空".into());
+    }
+    keyring::Entry::new(KEYRING_SERVICE, &keyring_user_for_provider(provider))
+        .map_err(|_| "无法访问系统密钥环".into())
+}
+
+fn read_key_entry(entry: &keyring::Entry) -> Result<String, String> {
+    match entry.get_password() {
+        Ok(key) => Ok(key),
+        Err(keyring::Error::NoEntry) => Ok(String::new()),
+        // 不输出底层错误，避免某些后端在错误中包含凭据数据。
+        Err(_) => Err("读取系统密钥环失败，原凭据未修改".into()),
+    }
+}
+
+pub fn read_api_key_for_provider(provider: &str) -> Result<String, String> {
+    read_key_entry(&provider_key_entry(provider)?)
+}
+
+pub fn read_provider_api_key(
+    state: &AppState,
+    provider: &str,
+    entry: &keyring::Entry,
+) -> Result<String, String> {
+    let key = read_key_entry(entry)?;
+    update_provider_key_cache(state, provider, &key);
+    Ok(key)
+}
+
+fn update_provider_key_cache(state: &AppState, provider: &str, value: &str) {
+    // 持有 profile 锁以避免检查期间切换提供商。
+    state.with_profile(|profile| {
+        if profile.llm_provider.resolve_active_provider() == provider {
+            state.set_ai_polish_api_key(value);
+        }
+        if profile.llm_provider.resolve_assistant_provider() == provider {
+            state.set_assistant_api_key(value);
+        }
+    });
+}
+
+/// None 表示明确删除；Some 空字符串是无效输入，绝不能隐式删除。
+pub fn persist_provider_api_key(
+    state: &AppState,
+    provider: &str,
+    entry: &keyring::Entry,
+    api_key: Option<&str>,
+) -> Result<(), String> {
+    let value = match api_key {
+        Some(key) => {
+            let key = key.trim();
+            if key.is_empty() {
+                return Err("API Key 不能为空，请使用删除操作".into());
+            }
+            entry.set_password(key).map_err(|_| "保存 API Key 失败")?;
+            key
+        }
+        None => {
+            match entry.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => {}
+                Err(_) => return Err("删除 API Key 失败".into()),
+            }
+            ""
+        }
+    };
+    // 持久化成功后才更新对应缓存。
+    update_provider_key_cache(state, provider, value);
+    Ok(())
+}
+
+/// 旧模块的显式编辑入口；润色和助手改用分离的保存/删除命令。
 /// 保存或删除 API Key：非空则写入密钥环，空则删除
 pub fn save_or_delete_api_key(app_handle: &tauri::AppHandle, keyring_user: &str, api_key: &str) {
     if !api_key.is_empty() {
@@ -1568,14 +1641,11 @@ pub fn save_or_delete_api_key(app_handle: &tauri::AppHandle, keyring_user: &str,
     }
 }
 
-pub fn load_api_key_for_provider(app_handle: &tauri::AppHandle, provider: &str) -> String {
-    let keyring_user = keyring_user_for_provider(provider);
-    app_handle
-        .keyring()
-        .get_password(KEYRING_SERVICE, &keyring_user)
-        .ok()
-        .flatten()
-        .unwrap_or_default()
+pub fn load_api_key_for_provider(_app_handle: &tauri::AppHandle, provider: &str) -> String {
+    read_api_key_for_provider(provider).unwrap_or_else(|_| {
+        log::warn!("读取 API Key 失败，未修改已保存凭据: provider={provider}");
+        String::new()
+    })
 }
 
 pub fn load_api_key_for_active_provider(app_handle: &tauri::AppHandle, state: &AppState) -> String {
@@ -1598,6 +1668,92 @@ pub fn sync_runtime_api_key(app_handle: &tauri::AppHandle, state: &AppState) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn mock_key_entry() -> keyring::Entry {
+        keyring::Entry::new_with_credential(Box::new(keyring::mock::MockCredential::default()))
+    }
+
+    fn fail_next_key_operation(entry: &keyring::Entry) {
+        entry
+            .get_credential()
+            .downcast_ref::<keyring::mock::MockCredential>()
+            .unwrap()
+            .set_error(keyring::Error::Invalid("test".into(), "unavailable".into()));
+    }
+
+    #[test]
+    fn credential_read_failure_is_not_an_absent_key_and_preserves_storage() {
+        let entry = mock_key_entry();
+        assert_eq!(read_key_entry(&entry).unwrap(), "");
+        entry.set_password("saved-test-key").unwrap();
+        fail_next_key_operation(&entry);
+        assert!(read_key_entry(&entry).is_err());
+        assert_eq!(read_key_entry(&entry).unwrap(), "saved-test-key");
+    }
+
+    #[test]
+    fn credential_read_recovery_refreshes_runtime_without_writing_storage() {
+        let state = AppState::new();
+        state.update_profile_mut(|p| p.llm_provider.active = OPENCODE_GO.into());
+        let entry = mock_key_entry();
+        entry.set_password("saved-test-key").unwrap();
+        state.set_ai_polish_api_key("previous-cache");
+        fail_next_key_operation(&entry);
+        assert!(read_provider_api_key(&state, OPENCODE_GO, &entry).is_err());
+        assert_eq!(state.read_ai_polish_api_key(), "previous-cache");
+        assert_eq!(
+            read_provider_api_key(&state, OPENCODE_GO, &entry).unwrap(),
+            "saved-test-key"
+        );
+        assert_eq!(state.read_ai_polish_api_key(), "saved-test-key");
+        assert_eq!(state.read_assistant_api_key(), "saved-test-key");
+        assert_eq!(entry.get_password().unwrap(), "saved-test-key");
+    }
+
+    #[test]
+    fn credential_save_failure_and_empty_input_preserve_storage_and_cache() {
+        let state = AppState::new();
+        state.update_profile_mut(|p| p.llm_provider.active = OPENCODE_GO.into());
+        let entry = mock_key_entry();
+        persist_provider_api_key(&state, OPENCODE_GO, &entry, Some("old-test-key")).unwrap();
+        fail_next_key_operation(&entry);
+        assert!(
+            persist_provider_api_key(&state, OPENCODE_GO, &entry, Some("new-test-key")).is_err()
+        );
+        assert_eq!(read_key_entry(&entry).unwrap(), "old-test-key");
+        assert_eq!(state.read_ai_polish_api_key(), "old-test-key");
+        assert!(persist_provider_api_key(&state, OPENCODE_GO, &entry, Some("  ")).is_err());
+        assert_eq!(read_key_entry(&entry).unwrap(), "old-test-key");
+        assert_eq!(state.read_ai_polish_api_key(), "old-test-key");
+    }
+
+    #[test]
+    fn credential_delete_is_explicit_and_only_updates_cache_after_success() {
+        let state = AppState::new();
+        state.update_profile_mut(|p| p.llm_provider.active = OPENCODE_GO.into());
+        let entry = mock_key_entry();
+        persist_provider_api_key(&state, OPENCODE_GO, &entry, Some("test-key")).unwrap();
+        fail_next_key_operation(&entry);
+        assert!(persist_provider_api_key(&state, OPENCODE_GO, &entry, None).is_err());
+        assert_eq!(state.read_ai_polish_api_key(), "test-key");
+        assert_eq!(read_key_entry(&entry).unwrap(), "test-key");
+        persist_provider_api_key(&state, OPENCODE_GO, &entry, None).unwrap();
+        assert_eq!(read_key_entry(&entry).unwrap(), "");
+        assert_eq!(state.read_ai_polish_api_key(), "");
+        persist_provider_api_key(&state, OPENCODE_GO, &entry, None).unwrap();
+    }
+
+    #[test]
+    fn credential_save_for_previous_provider_does_not_overwrite_current_cache() {
+        let state = AppState::new();
+        state.update_profile_mut(|p| p.llm_provider.active = "openai".into());
+        state.set_ai_polish_api_key("openai-test-key");
+        state.set_assistant_api_key("openai-test-key");
+        let entry = mock_key_entry();
+        persist_provider_api_key(&state, OPENCODE_GO, &entry, Some("go-test-key")).unwrap();
+        assert_eq!(read_key_entry(&entry).unwrap(), "go-test-key");
+        assert_eq!(state.read_ai_polish_api_key(), "openai-test-key");
+        assert_eq!(state.read_assistant_api_key(), "openai-test-key");
+    }
 
     #[test]
     fn opencode_go_resolves_saved_config_and_model_protocols() {

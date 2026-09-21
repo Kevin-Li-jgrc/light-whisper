@@ -3,11 +3,15 @@ pub mod alibaba_asr_service;
 pub mod assistant_service;
 pub mod audio_service;
 pub mod codex_oauth_service;
+pub mod correction_audit;
+#[cfg(test)]
+mod correction_audit_tests;
 pub mod download_service;
 pub mod funasr_service;
 pub mod glm_asr_service;
 pub mod grok_build_oauth_service;
 pub mod history_service;
+pub mod hotword_learning;
 pub mod llm_client;
 pub mod llm_provider;
 pub mod profile_service;
@@ -16,6 +20,9 @@ pub mod screen_capture_service;
 pub mod screen_vision_service;
 pub mod selection_service;
 pub mod web_search_service;
+
+#[cfg(test)]
+mod hotword_learning_tests;
 
 #[cfg(test)]
 mod ai_polish_transport_retry_tests;

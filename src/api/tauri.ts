@@ -13,6 +13,7 @@ import type {
   FunASRStatus,
   HotkeyDiagnostic,
   InputDeviceListPayload,
+  InputMethod,
   LlmReasoningMode,
   LlmReasoningSupport,
   ModelCheckResult,
@@ -174,20 +175,28 @@ export function setInputDevice(name?: string | null): Promise<void> {
   return invokeCommand<void>("set_input_device", { name: name ?? null });
 }
 
-export function setInputMethodCommand(method: string): Promise<void> {
-  return invokeCommand<void>("set_input_method", { method });
+export function setInputMethodCommand(method: InputMethod, onlyIfUnset = false): Promise<InputMethod> {
+  return invokeCommand<InputMethod>("set_input_method", { method, onlyIfUnset });
 }
 
 export function setSoundEnabled(enabled: boolean): Promise<void> {
   return invokeCommand<void>("set_sound_enabled", { enabled });
 }
 
-export function setAiPolishConfig(enabled: boolean, apiKey: string): Promise<void> {
-  return invokeCommand<void>("set_ai_polish_config", { enabled, apiKey });
+export function setAiPolishConfig(enabled: boolean): Promise<void> {
+  return invokeCommand<void>("set_ai_polish_config", { enabled });
 }
 
-export function getAiPolishApiKey(): Promise<string> {
-  return invokeCommand<string>("get_ai_polish_api_key");
+export function saveProviderApiKey(provider: string, apiKey: string): Promise<void> {
+  return invokeCommand<void>("save_provider_api_key", { provider, apiKey });
+}
+
+export function deleteProviderApiKey(provider: string): Promise<void> {
+  return invokeCommand<void>("delete_provider_api_key", { provider });
+}
+
+export function getAiPolishApiKey(provider: string): Promise<string> {
+  return invokeCommand<string>("get_ai_polish_api_key", { provider });
 }
 
 export function setAiPolishScreenContextEnabled(enabled: boolean): Promise<void> {
@@ -319,12 +328,8 @@ export function setScreenVisionApiKey(provider: string, apiKey: string): Promise
   return invokeCommand<void>("set_screen_vision_api_key", { provider, apiKey });
 }
 
-export function setAssistantApiKey(apiKey: string): Promise<void> {
-  return invokeCommand<void>("set_assistant_api_key", { apiKey });
-}
-
-export function getAssistantApiKey(): Promise<string> {
-  return invokeCommand<string>("get_assistant_api_key", {});
+export function getAssistantApiKey(provider: string): Promise<string> {
+  return invokeCommand<string>("get_assistant_api_key", { provider });
 }
 
 export function getLlmReasoningSupport(
@@ -350,11 +355,13 @@ export function importUserProfile(jsonData: string): Promise<void> {
   return invokeCommand<void>("import_user_profile", { jsonData });
 }
 
-export function submitUserCorrection(original: string, corrected: string, rawOriginal?: string | null): Promise<void> {
+export function submitUserCorrection(original: string, corrected: string, rawOriginal?: string | null, sessionId?: number, revision?: number): Promise<void> {
   return invokeCommand<void>("submit_user_correction", {
     original,
     corrected,
     rawOriginal: rawOriginal ?? null,
+    sessionId: sessionId ?? null,
+    revision: revision ?? null,
   });
 }
 
@@ -544,9 +551,7 @@ export function removeCorrection(original: string, corrected: string): Promise<v
   return invokeCommand<void>("remove_correction", { original, corrected });
 }
 
-export function validateCorrections(): Promise<number> {
-  return invokeCommand<number>("validate_corrections");
-}
+export { validateCorrections } from "./correctionAudit";
 
 export function setCorrectionValidationConfig(params: {
   enabled: boolean;

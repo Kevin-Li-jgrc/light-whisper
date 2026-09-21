@@ -18,6 +18,15 @@ vi.mock("react-i18next", () => ({
 }));
 
 describe("TranscriptionResult", () => {
+  it("reports clearing the entire result so learning can be withdrawn", () => {
+    const changed = vi.fn();
+    render(<TranscriptionResult text="PLC" originalText="PLC" isProcessing={false} copiedId={null}
+      onCopy={vi.fn()} onTextChange={changed} durationSec={null} charCount={null} />);
+    const result = screen.getByRole("textbox");
+    fireEvent.change(result, { target: { value: "" } });
+    fireEvent.blur(result);
+    expect(changed).toHaveBeenCalledWith("");
+  });
   it("shows ASR, AI polish, and total latency when timing is available", () => {
     render(
       <TranscriptionResult

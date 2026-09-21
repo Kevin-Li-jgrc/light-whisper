@@ -18,7 +18,17 @@ pub async fn submit_user_correction(
     original: String,
     corrected: String,
     raw_original: Option<String>,
+    session_id: Option<u64>,
+    revision: Option<u64>,
 ) -> Result<(), String> {
+    if let (Some(id), Some(revision)) = (session_id, revision) {
+        crate::services::hotword_learning::queue_correction(
+            &app_handle,
+            id,
+            revision,
+            corrected.clone(),
+        );
+    }
     // 用 LLM 结合 ASR 原文和当前显示文本，提取词级纠错
     let corrections = extract_corrections_via_llm(
         &app_handle,
@@ -202,6 +212,45 @@ fn parse_correction_pairs(raw: &str) -> Vec<(String, String)> {
 #[tauri::command]
 pub async fn get_user_profile(state: tauri::State<'_, AppState>) -> Result<UserProfile, String> {
     Ok(state.snapshot_profile())
+}
+
+#[tauri::command]
+pub async fn get_hotword_priority(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::services::hotword_learning::Snapshot, String> {
+    use crate::services::hotword_learning as learning;
+    Ok(profile_service::update_profile_and_schedule(
+        state.inner(),
+        |p| {
+            let at = learning::now();
+            learning::reconcile(p, at);
+            learning::snapshot(p, at)
+        },
+    ))
+}
+
+#[tauri::command]
+pub async fn set_hotword_learning(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    use crate::services::hotword_learning as learning;
+    profile_service::update_profile_and_schedule(state.inner(), |p| {
+        learning::set_enabled(p, enabled, learning::now())
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn reset_hotword_learning(
+    state: tauri::State<'_, AppState>,
+    text: String,
+) -> Result<(), String> {
+    use crate::services::hotword_learning as learning;
+    profile_service::update_profile_and_schedule(state.inner(), |p| {
+        learning::reset(p, &text, learning::now())
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -776,8 +825,7 @@ pub async fn set_polish_structure_level(
 pub async fn export_user_profile(
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    let data = serde_json::to_string_pretty(&state.snapshot_profile())
-        .map_err(|e| format!("序列化失败: {}", e))?;
+    let data = profile_service::export_profile(state.inner())?;
     let selected_path = tokio::task::spawn_blocking(|| {
         let mut dialog = rfd::FileDialog::new()
             .add_filter("JSON", &["json"])
@@ -806,134 +854,18 @@ pub async fn import_user_profile(
     state: tauri::State<'_, AppState>,
     json_data: String,
 ) -> Result<(), String> {
-    let imported: UserProfile =
-        serde_json::from_str(&json_data).map_err(|e| format!("解析画像数据失败: {}", e))?;
-    let (_, profile) = state.update_profile(|profile| {
-        *profile = imported;
-        profile_service::normalize_profile(profile);
-    });
-    profile_service::save_profile_async(&profile)
+    profile_service::import_profile(state.inner(), &json_data, |imported| async {
+        let legacy = state.ui.input_method.lock().clone();
+        profile_service::commit_profile(state.inner(), move |profile| {
+            profile_service::replace_imported_profile(profile, imported, &legacy);
+            Ok(())
+        })
         .await
-        .map_err(|e| format!("保存用户画像失败: {}", e))?;
+    })
+    .await
+    .map_err(|e| format!("保存用户画像失败: {}", e))?;
     llm_provider::sync_runtime_api_key(&app_handle, state.inner());
     Ok(())
-}
-
-/// LLM 审核核心逻辑，供命令和定期任务共用
-pub async fn run_correction_validation(
-    app_handle: &tauri::AppHandle,
-    state: &AppState,
-) -> Result<u32, String> {
-    let config = state.llm_provider_config();
-    let endpoint = if config.validation_use_separate_model {
-        llm_provider::validation_endpoint_for_config(&config)
-    } else {
-        llm_provider::endpoint_for_config(&config)
-    };
-
-    let api_key = llm_provider::load_api_key_for_provider(app_handle, &endpoint.provider);
-    if api_key.is_empty() {
-        return Err("未配置 API Key，无法审核纠错规则".into());
-    }
-
-    let ai_corrections: Vec<(String, String)> = state.with_profile(|p| {
-        p.correction_patterns
-            .iter()
-            .filter(|c| c.source == CorrectionSource::Ai)
-            .map(|c| (c.original.clone(), c.corrected.clone()))
-            .collect()
-    });
-
-    if ai_corrections.is_empty() {
-        update_validation_timestamp(state);
-        return Ok(0);
-    }
-
-    let mut all_invalid: std::collections::HashSet<(String, String)> =
-        std::collections::HashSet::new();
-
-    for chunk in ai_corrections.chunks(40) {
-        let mut rules_text = String::new();
-        for (i, (orig, corrected)) in chunk.iter().enumerate() {
-            rules_text.push_str(&format!("{}. \"{}\" → \"{}\"\n", i + 1, orig, corrected));
-        }
-
-        let prompt = format!(
-            "以下是语音识别自动纠错系统学到的 {} 条纠错规则。请逐条审核。\n\n\
-             合理的规则：同音字/近音字纠正、专有名词大小写、常见 ASR 误识别修复\n\
-             不合理的规则：语义无关的替换、对话碎片误学、过度泛化（如常见词映射到不相关的词）\n\n\
-             规则列表：\n{}\n\
-             以 JSON 数组输出不合理的编号，例如 [2,5,7]。如果全部合理输出 []。只输出 JSON。",
-            chunk.len(),
-            rules_text
-        );
-
-        let opts = LlmRequestOptions {
-            json_output: true,
-            reasoning_mode: config.polish_reasoning_mode(),
-            ..Default::default()
-        };
-
-        let body = llm_client::build_llm_body(
-            &endpoint,
-            "你是纠错规则质量审核工具，只输出 JSON。",
-            &LlmUserInput::from(prompt.as_str()),
-            opts,
-        );
-
-        let raw = match llm_client::send_llm_request(
-            &state.http_client,
-            &endpoint,
-            &api_key,
-            &body,
-            prompt.len(),
-            None,
-            opts,
-        )
-        .await
-        {
-            Ok(content) => content,
-            Err(err) => {
-                log::warn!("纠错审核 LLM 请求失败: {}", err);
-                continue;
-            }
-        };
-
-        let invalid_indices = parse_invalid_indices(raw.trim());
-        for idx in invalid_indices {
-            if idx >= 1 && idx <= chunk.len() {
-                let (ref orig, ref corrected) = chunk[idx - 1];
-                all_invalid.insert((orig.clone(), corrected.clone()));
-            }
-        }
-    }
-
-    if all_invalid.is_empty() {
-        update_validation_timestamp(state);
-        return Ok(0);
-    }
-
-    let removed = all_invalid.len() as u32;
-    log::info!("LLM 审核删除 {} 条 AI 纠错规则", removed);
-
-    profile_service::update_profile_and_schedule(state, |profile| {
-        profile.correction_patterns.retain(|p| {
-            p.source == CorrectionSource::User
-                || !all_invalid.contains(&(p.original.clone(), p.corrected.clone()))
-        });
-    });
-    update_validation_timestamp(state);
-
-    Ok(removed)
-}
-
-/// LLM 审核 AI 来源的纠错规则（Tauri command 入口）
-#[tauri::command]
-pub async fn validate_corrections(
-    app_handle: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<u32, String> {
-    run_correction_validation(&app_handle, state.inner()).await
 }
 
 #[tauri::command]
@@ -975,45 +907,6 @@ pub async fn remove_correction(
             .retain(|p| !(p.original == original && p.corrected == corrected));
     });
     Ok(())
-}
-
-fn update_validation_timestamp(state: &AppState) {
-    profile_service::update_profile_and_schedule(state, |profile| {
-        profile.last_correction_validation = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-    });
-}
-
-fn parse_invalid_indices(raw: &str) -> Vec<usize> {
-    if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw) {
-        return arr
-            .iter()
-            .filter_map(|v| {
-                v.as_u64()
-                    .map(|n| n as usize)
-                    .or_else(|| v.as_f64().map(|n| n as usize))
-            })
-            .collect();
-    }
-    if let Ok(obj) = serde_json::from_str::<serde_json::Value>(raw) {
-        if let Some(map) = obj.as_object() {
-            for val in map.values() {
-                if let Some(arr) = val.as_array() {
-                    return arr
-                        .iter()
-                        .filter_map(|v| {
-                            v.as_u64()
-                                .map(|n| n as usize)
-                                .or_else(|| v.as_f64().map(|n| n as usize))
-                        })
-                        .collect();
-                }
-            }
-        }
-    }
-    Vec::new()
 }
 
 #[cfg(test)]

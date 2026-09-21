@@ -4,6 +4,7 @@ import { Eye, EyeOff } from "lucide-react";
 
 interface SecretInputProps {
   value: string;
+  disabled?: boolean;
   placeholder: string;
   onChange: (value: string) => void;
   inputClassName?: string;
@@ -16,6 +17,7 @@ interface SecretInputProps {
 
 export default function SecretInput({
   value,
+  disabled,
   placeholder,
   onChange,
   inputClassName = "settings-input",
@@ -38,6 +40,7 @@ export default function SecretInput({
         placeholder={placeholder}
         aria-label={ariaLabel ?? placeholder}
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         style={{ flex: 1, padding: "8px 36px 8px 10px", ...inputStyle }}
       />

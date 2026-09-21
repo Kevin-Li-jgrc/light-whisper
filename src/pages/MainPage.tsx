@@ -21,7 +21,7 @@ export default function MainPage({ onNavigate, animClass = "" }: {
   const { t } = useTranslation();
   const {
     isStarting, isRecording, isProcessing, startRecording, stopRecording,
-    recordingError, transcriptionResult, originalAsrText, editBaselineText, setEditBaselineText, setTranscriptionResult,
+    recordingError, transcriptionResult, originalAsrText, resultSessionId, editBaselineText, setEditBaselineText, setTranscriptionResult,
     durationSec, charCount, detectedLanguage, editGrabStatus, timing, history, recordingMode, stage, isReady,
     device, gpuName, downloadProgress, downloadMessage,
     isDownloading, modelError, hotkeyDisplay,
@@ -46,8 +46,9 @@ export default function MainPage({ onNavigate, animClass = "" }: {
 
   const pageContentClass = `page-content ${animClass || ""}`.trim();
 
-  const correctionSubmit = useDebouncedCallback((previousText: string, nextText: string, rawOriginalText: string | null) => {
-    submitUserCorrection(previousText, nextText, rawOriginalText)
+  const correctionRevision = useRef(Date.now());
+  const correctionSubmit = useDebouncedCallback((previousText: string, nextText: string, rawOriginalText: string | null, sessionId: number, revision: number) => {
+    submitUserCorrection(previousText, nextText, rawOriginalText, sessionId, revision)
       .then(() => toast.success(t("toast.correctionRecorded"), { duration: 1500 }))
       .catch(() => toast.error(t("toast.correctionFailed")));
   }, 900, { onUnmount: "flush" });
@@ -76,16 +77,16 @@ export default function MainPage({ onNavigate, animClass = "" }: {
       setTranscriptionResult(newText);
       return;
     }
-    if (editBaselineText && newText !== editBaselineText) {
+    if (editBaselineText !== null && newText !== editBaselineText) {
       const prevText = editBaselineText;
       setEditBaselineText(newText);
       setTranscriptionResult(newText);
-      correctionSubmit.schedule(prevText, newText, originalAsrText);
+      correctionSubmit.schedule(prevText, newText, originalAsrText, resultSessionId, ++correctionRevision.current);
     }
   }, [
     correctionSubmit,
     editBaselineText,
-    originalAsrText,
+    originalAsrText, resultSessionId,
     recordingMode,
     setTranscriptionResult,
     setEditBaselineText,

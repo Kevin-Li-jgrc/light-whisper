@@ -73,8 +73,38 @@ describe("P0 settings sections", () => {
           translation: "inherit",
           screen_context: "inherit",
           history: "inherit",
+          input_method: "inherit",
         }),
       ]);
     });
+  });
+
+  it.each(["clipboard", "sendInput", "inherit"])("saves and reopens the per-app input method %s", async (method) => {
+    const profile = { app_profile_rules: [] } as unknown as UserProfile;
+    render(<AppProfileRulesSettingsSection profile={profile} onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "settings.appRuleAdd" }));
+    fireEvent.change(screen.getByLabelText("settings.appRuleProcess"), { target: { value: "Weixin.exe" } });
+    fireEvent.change(screen.getByLabelText("settings.inputMethod"), { target: { value: method } });
+    fireEvent.click(screen.getByRole("button", { name: "settings.appRuleSave" }));
+    await waitFor(() => expect(api.setAppProfileRules).toHaveBeenCalledWith([
+      expect.objectContaining({ process_name: "Weixin.exe", input_method: method }),
+    ]));
+    await waitFor(() => expect(screen.queryByLabelText("settings.inputMethod")).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "settings.appRuleEdit" }));
+    expect(screen.getByLabelText("settings.inputMethod")).toHaveValue(method);
+  });
+
+  it("edits legacy rules as inherit without changing their other overrides", async () => {
+    const profile = { app_profile_rules: [{
+      id: "legacy", name: "微信", enabled: true, process_name: "Weixin.exe",
+      ai_polish: "disabled", translation: "inherit", screen_context: "inherit", history: "enabled",
+    }] } as UserProfile;
+    render(<AppProfileRulesSettingsSection profile={profile} onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "settings.appRuleEdit" }));
+    expect(screen.getByLabelText("settings.inputMethod")).toHaveValue("inherit");
+    fireEvent.click(screen.getByRole("button", { name: "settings.appRuleSave" }));
+    await waitFor(() => expect(api.setAppProfileRules).toHaveBeenCalledWith([
+      expect.objectContaining({ input_method: "inherit", ai_polish: "disabled", history: "enabled" }),
+    ]));
   });
 });

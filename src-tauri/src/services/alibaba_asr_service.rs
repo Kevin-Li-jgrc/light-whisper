@@ -107,6 +107,7 @@ async fn transcribe_via_dashscope_asr(
     if let Some(code) = parsed.code.as_deref() {
         if !code.is_empty() && code != "Success" {
             return Ok(TranscriptionResult {
+                raw_text: None,
                 text: String::new(),
                 duration: None,
                 success: false,
@@ -136,6 +137,7 @@ async fn transcribe_via_dashscope_asr(
     }
 
     Ok(TranscriptionResult {
+        raw_text: None,
         text: text_out,
         duration: None,
         success: true,
@@ -259,6 +261,7 @@ async fn transcribe_via_omni_chat(
     }
 
     Ok(TranscriptionResult {
+        raw_text: None,
         text: collected,
         duration: None,
         success: true,

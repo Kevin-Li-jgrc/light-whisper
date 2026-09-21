@@ -60,7 +60,7 @@ export default function TranscriptionResult({
   const handleBlur = useCallback(() => {
     const edited = draftText.trim();
     const baseline = originalText?.trim() ?? "";
-    if (edited && baseline && edited !== baseline) {
+    if (originalText !== null && edited !== baseline) {
       onTextChange?.(edited);
     }
   }, [draftText, originalText, onTextChange]);

@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import { addHotWords, previewHotWords, removeHotWords, type HotWordBatchPreview } from "@/api/vocabulary";
 import type { HotWord } from "@/types";
+import { getHotwordPriority, setHotwordLearning, resetHotwordLearning, type PrioritySnapshot } from "@/api/hotwordPriority";
+import HotwordPriorityDetails from "./HotwordPriorityDetails";
 import "./vocabulary.css";
 
 export interface VocabularyManagerProps {
@@ -27,6 +29,21 @@ export default function VocabularyManager({ words, onSaved, onClose }: Vocabular
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [priority, setPriority] = useState<PrioritySnapshot | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const requestId = useRef(0);
+  const refresh = useCallback(async () => {
+    const id = ++requestId.current;
+    const snapshot = await getHotwordPriority();
+    if (id === requestId.current) setPriority(snapshot);
+  }, []);
+  useEffect(() => {
+    let active = true;
+    const reload = () => { void refresh().catch((cause) => { if (active) setError(String(cause)); }); };
+    reload();
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") reload(); }, 60_000);
+    return () => { active = false; ++requestId.current; window.clearInterval(timer); };
+  }, [words, refresh]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -36,9 +53,10 @@ export default function VocabularyManager({ words, onSaved, onClose }: Vocabular
 
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-    return words.filter((word) => word.text.toLowerCase().includes(keyword))
-      .sort((a, b) => b.weight - a.weight || b.use_count - a.use_count || a.text.localeCompare(b.text));
-  }, [words, search]);
+    // 后端先计算全库排名，再搜索、分页，不能在搜索结果中重新编号。
+    return (priority?.words ?? words).filter((word) => word.text.toLowerCase().includes(keyword));
+  }, [words, priority, search]);
+  const priorityByText = useMemo(() => new Map(priority?.words.map((word) => [word.text, word])), [priority]);
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages - 1);
   const visible = filtered.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
@@ -62,6 +80,7 @@ export default function VocabularyManager({ words, onSaved, onClose }: Vocabular
     setPreview(null);
     setStatus(t("vocabulary.addResult", { added: result.added, duplicates: result.duplicates, invalid: result.invalid.length }));
     await onSaved();
+    await refresh();
   });
   const confirmDelete = () => run(async () => {
     const removed = await removeHotWords(pendingDelete);
@@ -69,6 +88,7 @@ export default function VocabularyManager({ words, onSaved, onClose }: Vocabular
     setSelected(new Set());
     setStatus(t("vocabulary.deleteResult", { count: removed }));
     await onSaved();
+    await refresh();
   });
 
   return createPortal(
@@ -82,6 +102,12 @@ export default function VocabularyManager({ words, onSaved, onClose }: Vocabular
       {error && <p className="settings-error" role="alert">{error}</p>}
       {status && <p className="vocabulary-message" role="status">{status}</p>}
       {mode === "manage" ? <>
+        <div className="vocabulary-toolbar vocabulary-learning-toolbar">
+          <label className="vocabulary-checkbox"><input type="checkbox" role="switch" checked={priority?.enabled ?? true} disabled={locked || !priority}
+            onChange={(event) => { const enabled = event.target.checked; void run(async () => { await setHotwordLearning(enabled); await refresh(); }); }} />{t("hotwordPriority.enabled")}</label>
+          <button type="button" className="test-btn" disabled={locked} onClick={() => void run(refresh)}>{t("hotwordPriority.refresh")}</button>
+        </div>
+        <p className="vocabulary-muted">{t("hotwordPriority.rankHint")}</p>
         <div className="vocabulary-toolbar">
           <input type="search" className="settings-input" aria-label={t("vocabulary.search")}
             placeholder={t("vocabulary.search")} value={search} disabled={locked}
@@ -105,7 +131,9 @@ export default function VocabularyManager({ words, onSaved, onClose }: Vocabular
         </div>}
         <div className="vocabulary-list">
           {visible.length === 0 && <p className="vocabulary-muted">{t("vocabulary.empty")}</p>}
-          {visible.map((word) => <div className="vocabulary-row" key={word.text}>
+          {visible.map((word) => <div className="vocabulary-entry" key={word.text}>
+            <div className="vocabulary-row">
+            <span className="vocabulary-rank" title={t("hotwordPriority.rank")}>{priorityByText.has(word.text) ? `#${priorityByText.get(word.text)!.rank}` : "—"}</span>
             <label className="vocabulary-checkbox vocabulary-word">
               <input type="checkbox" checked={selected.has(word.text)} disabled={locked}
                 onChange={(event) => setSelected((previous) => {
@@ -116,8 +144,17 @@ export default function VocabularyManager({ words, onSaved, onClose }: Vocabular
               <span>{word.text}</span>
             </label>
             <span className="vocabulary-muted">{t(word.source === "user" ? "settings.sourceManual" : "settings.sourceLearned")}</span>
+            {priorityByText.has(word.text) && <div className="vocabulary-priority-summary">
+              <span title={t("hotwordPriority.weights")}>{priorityByText.get(word.text)!.base_weight} → <strong>{priorityByText.get(word.text)!.effective_weight}</strong></span>
+              <span className={priorityByText.get(word.text)!.in_asr ? "vocabulary-active" : "vocabulary-muted"}>{t(priorityByText.get(word.text)!.in_asr ? "hotwordPriority.selected" : "hotwordPriority.notSelected")}</span>
+              <button type="button" className="btn-ghost" aria-expanded={expanded.has(word.text)} aria-label={t("hotwordPriority.details", { word: word.text })}
+                onClick={() => setExpanded((previous) => { const next = new Set(previous); if (next.has(word.text)) next.delete(word.text); else next.add(word.text); return next; })}>{t("hotwordPriority.view")}</button>
+            </div>}
             <button type="button" className="icon-btn" disabled={locked} aria-label={t("settings.removeHotWordLabel", { word: word.text })}
               onClick={() => setPendingDelete([word.text])}><X size={14} /></button>
+            </div>
+            {expanded.has(word.text) && priorityByText.has(word.text) && <HotwordPriorityDetails word={priorityByText.get(word.text)!} disabled={locked}
+              onReset={() => void run(async () => { await resetHotwordLearning(word.text); await refresh(); })} />}
           </div>)}
         </div>
         <footer className="vocabulary-toolbar vocabulary-pagination">

@@ -12,3 +12,5 @@ pub mod selection;
 pub mod subtitle_layout;
 pub mod updater;
 pub mod window;
+
+pub mod correction_audit;

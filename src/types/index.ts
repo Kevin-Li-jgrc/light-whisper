@@ -213,6 +213,7 @@ export interface LlmProviderConfig {
 
 // 用户画像
 export interface UserProfile {
+  input_method?: InputMethod | null;
   hot_words: HotWord[];
   correction_patterns: CorrectionPattern[];
   vocab_frequency: Record<string, { count: number; last_seen: number }>;
@@ -245,6 +246,8 @@ export interface HistorySettings {
 
 export type AppRuleOverride = "inherit" | "enabled" | "disabled";
 export type AppTranslationOverride = "inherit" | "disabled" | "target";
+export type InputMethod = "sendInput" | "clipboard";
+export type AppInputMethodOverride = "inherit" | InputMethod;
 
 export interface AppProfileRule {
   id: string;
@@ -252,6 +255,7 @@ export interface AppProfileRule {
   enabled: boolean;
   process_name: string;
   window_title_contains?: string | null;
+  input_method?: AppInputMethodOverride;
   ai_polish: AppRuleOverride;
   translation: AppTranslationOverride;
   translation_target?: string | null;

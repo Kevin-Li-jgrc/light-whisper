@@ -324,7 +324,11 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
     let max_interim_window_samples = (sample_rate as f64 * INTERIM_MAX_AUDIO_WINDOW_SEC) as usize;
     let tail_gap_threshold_samples = (sample_rate as f64 * 0.25) as usize;
     let asr_start = Instant::now();
-    let (asr_text, detected_lang): (Result<String, String>, Option<String>) = match cached {
+    let (asr_text, detected_lang, learning_raw): (
+        Result<String, String>,
+        Option<String>,
+        Option<String>,
+    ) = match cached {
         Some(ref c)
             if final_count > 0
                 && final_count <= max_interim_window_samples
@@ -336,11 +340,11 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                 "复用 interim 缓存 (尾部间隙 {:.0}ms)",
                 (final_count - c.sample_count) as f64 * 1000.0 / sample_rate as f64
             );
-            (Ok(c.text.clone()), c.language.clone())
+            (Ok(c.text.clone()), c.language.clone(), c.raw_text.clone())
         }
         _ => match do_final_asr(&app_handle, state.inner(), &samples, sample_rate).await {
-            Ok(r) => (Ok(r.text), r.language),
-            Err(e) => (Err(e), None),
+            Ok(r) => (Ok(r.text), r.language, r.raw_text),
+            Err(e) => (Err(e), None, None),
         },
     };
 
@@ -750,6 +754,12 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         );
 
         if !text.is_empty() {
+            crate::services::hotword_learning::queue_record(
+                &app_handle,
+                session_id,
+                learning_raw.unwrap_or_else(|| original.clone()),
+                text.clone(),
+            );
             let app = app_handle.clone();
             let processing = state.recording.reinsert.processing();
             tokio::spawn(async move {
@@ -1095,8 +1105,7 @@ async fn do_paste(app: &tauri::AppHandle, text: &str) {
     }
     full.push_str(text);
 
-    let method = state.ui.input_method.lock().clone();
-    if let Err(e) = crate::commands::clipboard::paste_text_impl(app, &full, &method).await {
+    if let Err(e) = crate::commands::clipboard::paste_dictation_text(app, &full).await {
         log::error!("自动粘贴失败: {}", e);
     }
 }

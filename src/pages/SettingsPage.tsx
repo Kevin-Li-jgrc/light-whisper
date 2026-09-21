@@ -2,6 +2,7 @@ import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } fro
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ArrowLeft, Mic, Monitor, Eye, Keyboard, ClipboardPaste, AudioLines, Zap, Sparkles, BookOpen, Plus, X, Minus, ChevronsUpDown, Globe, Cloud, Trash2, FolderOpen, RotateCcw, HardDrive, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { useProviderApiKey } from "@/hooks/useProviderApiKey";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useHotkeyCapture } from "@/hooks/useHotkeyCapture";
 import VocabularyControls from "@/components/settings/VocabularyControls";
@@ -37,7 +38,6 @@ import {
   setAssistantHotkey,
   setAssistantSystemPrompt,
   getLlmReasoningSupport,
-  setAssistantApiKey,
   getAssistantApiKey,
   loginGrokBuildOauth,
   loginOpenaiCodexOauth,
@@ -343,7 +343,6 @@ export default function SettingsPage({
   });
   const [soundEnabled, setSoundEnabledState] = useState(() => readLocalStorage(SOUND_ENABLED_KEY) !== "false");
   const [aiPolishEnabled, setAiPolishEnabled] = useState(() => readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
-  const [aiPolishApiKey, setAiPolishApiKey] = useState("");
   const [openaiCodexOauthStatus, setOpenaiCodexOauthStatus] = useState<OpenaiCodexOauthStatus>({ loggedIn: false });
   const [openaiCodexOauthLoading, setOpenaiCodexOauthLoading] = useState(false);
   const [openaiCodexOauthDeviceCode, setOpenaiCodexOauthDeviceCode] = useState<OpenaiCodexOauthDeviceCodeChallenge | null>(null);
@@ -364,7 +363,6 @@ export default function SettingsPage({
   const [assistantUseSeparateModel, setAssistantUseSeparateModel] = useState(false);
   const [assistantModel, setAssistantModel] = useState("");
   const [assistantProvider, setAssistantProviderState] = useState("");
-  const [assistantApiKeyState, setAssistantApiKeyState] = useState("");
   // null = 用户未显式选择，effectiveOpenaiAuthMode 会根据 OAuth 登录态给出智能默认
   const [openaiAuthMode, setOpenaiAuthModeState] = useState<OpenaiAuthMode | null>(null);
   const [xaiAuthMode, setXaiAuthModeState] = useState<XaiAuthMode | null>(null);
@@ -399,10 +397,14 @@ export default function SettingsPage({
     assistantProvider,
     availableProviders: availableLlmProviders,
   });
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const polishKey = useProviderApiKey(llmProvider, getAiPolishApiKey, profile !== null);
+  const assistantKey = useProviderApiKey(effectiveAssistantProvider, getAssistantApiKey, profile !== null);
+  const { key: aiPolishApiKey, setKey: setAiPolishApiKey, refresh: refreshAiPolishKey, flush: flushPolishKey } = polishKey;
+  const { key: assistantApiKeyState, setKey: setAssistantApiKeyState, flush: flushAssistantKey } = assistantKey;
   const polishManualApiKey = aiPolishApiKey.trim();
   const assistantManualApiKey =
-    assistantApiKeyState.trim()
-    || (effectiveAssistantProvider === llmProvider ? polishManualApiKey : "");
+    effectiveAssistantProvider === llmProvider ? polishManualApiKey : assistantApiKeyState.trim();
   // openaiAuthMode 为 null 表示用户没在设置页里明确点过，沿用智能默认：
   // 已登录 OAuth → oauth；否则 → api_key。前端和后端 resolve_api_key_for_provider
   // 的默认推断逻辑完全对齐，避免 UI 显示和实际请求走向不一致。
@@ -467,7 +469,6 @@ export default function SettingsPage({
   ]);
 
   // --- Profile & misc ---
-  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [newHotWord, setNewHotWord] = useState("");
   const [translationTarget, setTranslationTargetState] = useState<string | null>(null);
   const [customPromptState, setCustomPromptState] = useState<string>("");
@@ -494,18 +495,8 @@ export default function SettingsPage({
   const [validationUseSeparateModel, setValidationUseSeparateModel] = useState(false);
   const [validationProvider, setValidationProvider] = useState<string | null>(null);
   const [validationModel, setValidationModel] = useState("");
-  const [validationRunning, setValidationRunning] = useState(false);
-  const [validationResult, setValidationResult] = useState<string | null>(null);
   const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
   const correctionManageButtonRef = useRef<HTMLButtonElement>(null);
-
-  const aiPolishKeySave = useDebouncedCallback((value: string, enabled: boolean) => {
-    setAiPolishConfig(enabled, value).catch(() => {});
-  }, 600, { onUnmount: "flush" });
-
-  const assistantKeySave = useDebouncedCallback((value: string) => {
-    setAssistantApiKey(value).catch(() => {});
-  }, 600, { onUnmount: "flush" });
 
   const screenVisionKeySave = useDebouncedCallback((provider: string, value: string) => {
     setScreenVisionApiKey(provider, value).catch(() => {
@@ -594,30 +585,6 @@ export default function SettingsPage({
     };
   }, [providerDrafts, customProviders]);
 
-  const refreshAiPolishKey = useCallback(async (enabled = aiPolishEnabled) => {
-    try {
-      const key = (await getAiPolishApiKey()) || "";
-      setAiPolishApiKey(key);
-      await setAiPolishConfig(enabled, key).catch(() => {});
-      return key;
-    } catch {
-      setAiPolishApiKey("");
-      await setAiPolishConfig(enabled, "").catch(() => {});
-      return "";
-    }
-  }, [aiPolishEnabled]);
-
-  const refreshAssistantKey = useCallback(async () => {
-    try {
-      const key = (await getAssistantApiKey()) || "";
-      setAssistantApiKeyState(key);
-      return key;
-    } catch {
-      setAssistantApiKeyState("");
-      return "";
-    }
-  }, []);
-
   const refreshScreenVisionKey = useCallback(async (provider: string) => {
     const requestId = ++screenVisionKeyRequestIdRef.current;
     try {
@@ -678,16 +645,20 @@ export default function SettingsPage({
     }
   }, []);
 
-  // 从系统密钥环加载 API Key，并同步 enabled 状态到后端
+  // 开关同步不再读取或改写凭据。
   useEffect(() => {
-    void refreshAiPolishKey(readLocalStorage(AI_POLISH_ENABLED_KEY) === "true");
-  }, [refreshAiPolishKey]);
+    void setAiPolishConfig(aiPolishEnabled).catch(() => toast.error(t("toast.aiPolishSaveFailed")));
+  }, [aiPolishEnabled, t]);
 
   // 加载用户画像
   const refreshProfile = useCallback(async () => {
     try {
       const p = await getUserProfile();
       setProfile(p);
+      if (p.input_method) {
+        setInputMethod(p.input_method);
+        writeLocalStorage(INPUT_METHOD_KEY, p.input_method);
+      }
       const cps = p.llm_provider.custom_providers ?? [];
       setCustomProviders(cps);
       const nextProvider = resolveEffectiveProvider(p.llm_provider.active || "cerebras", cps);
@@ -771,7 +742,6 @@ export default function SettingsPage({
 
   useEffect(() => {
     refreshProfile().then((loadedProfile) => {
-      void refreshAssistantKey();
       void refreshOpenaiCodexOauthStatus();
       void refreshGrokBuildOauthStatus();
       void refreshScreenVisionKey(
@@ -779,7 +749,7 @@ export default function SettingsPage({
       );
       void refreshWebSearchKey(loadedProfile?.web_search?.provider ?? "model_native");
     });
-  }, [refreshProfile, refreshAssistantKey, refreshGrokBuildOauthStatus, refreshOpenaiCodexOauthStatus, refreshScreenVisionKey, refreshWebSearchKey]);
+  }, [refreshProfile, refreshGrokBuildOauthStatus, refreshOpenaiCodexOauthStatus, refreshScreenVisionKey, refreshWebSearchKey]);
 
   const {
     appVersion,
@@ -1530,9 +1500,11 @@ export default function SettingsPage({
     }
 
     updateProviderDraft(llmProvider, customBaseUrl, customModel);
-    aiPolishKeySave.cancel();
+    try {
+      await flushPolishKey();
+      await flushAssistantKey();
+    } catch { return; }
     llmConfigSave.cancel();
-    await setAiPolishConfig(aiPolishEnabled, aiPolishApiKey).catch(() => {});
 
     const nextDraft = resolveProviderDraft(nextProvider);
     const nextAssistantModel = resolveAssistantModelForPolishProviderChange({
@@ -1564,13 +1536,7 @@ export default function SettingsPage({
       nextAssistantModel,
       assistantProviderToPersist,
     ).catch(() => {});
-    await refreshAiPolishKey();
-    if (!assistantUseSeparateModel) {
-      await refreshAssistantKey();
-    }
   }, [
-    aiPolishApiKey,
-    aiPolishEnabled,
     assistantProviderToPersist,
     customBaseUrl,
     customModel,
@@ -1580,10 +1546,9 @@ export default function SettingsPage({
     assistantReasoningMode,
     assistantUseSeparateModel,
     assistantModel,
-    aiPolishKeySave,
+    flushPolishKey,
+    flushAssistantKey,
     llmConfigSave,
-    refreshAiPolishKey,
-    refreshAssistantKey,
     resolveProviderDraft,
     updateProviderDraft,
   ]);
@@ -1640,10 +1605,7 @@ export default function SettingsPage({
       nextState.assistantModel,
       nextState.assistantProviderToPersist,
     );
-    if (enabled) {
-      void refreshAssistantKey();
-    }
-  }, [assistantModel, assistantProvider, assistantReasoningMode, assistantUseSeparateModel, availableLlmProviders, currentAssistantPreset.defaultModel, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, refreshAssistantKey, llmConfigSave]);
+  }, [assistantModel, assistantProvider, assistantReasoningMode, assistantUseSeparateModel, availableLlmProviders, currentAssistantPreset.defaultModel, customBaseUrl, customModel, llmProvider, picker, polishReasoningMode, llmConfigSave]);
 
   const handleAssistantProviderSelect = useCallback(async (nextProvider: string) => {
     if (nextProvider === assistantProvider) {
@@ -1651,6 +1613,7 @@ export default function SettingsPage({
       setAssistantProviderSearch("");
       return;
     }
+    try { await flushAssistantKey(); } catch { return; }
     const nextProviderCustom = customProviders.find((provider) => provider.id === nextProvider);
     const nextProviderDefaultModel = nextProviderCustom
       ? nextProviderCustom.model
@@ -1677,8 +1640,7 @@ export default function SettingsPage({
       nextAssistantModel || undefined,
       nextProvider,
     ).catch(() => {});
-    await refreshAssistantKey();
-  }, [assistantProvider, assistantReasoningMode, customBaseUrl, customModel, customProviders, llmConfigSave, llmProvider, picker, polishReasoningMode, refreshAssistantKey]);
+  }, [assistantProvider, assistantReasoningMode, customBaseUrl, customModel, customProviders, flushAssistantKey, llmConfigSave, llmProvider, picker, polishReasoningMode]);
 
   const handleAssistantModelSelect = useCallback((nextModel: string) => {
     const normalizedModel = nextModel.trim();
@@ -1703,16 +1665,15 @@ export default function SettingsPage({
     try {
       const autoEnabled = await setTranslationTarget(target);
       if (autoEnabled) {
-        aiPolishKeySave.cancel();
         setAiPolishEnabled(true);
         writeLocalStorage(AI_POLISH_ENABLED_KEY, "true");
-        await setAiPolishConfig(true, aiPolishApiKey).catch(() => {});
+        await setAiPolishConfig(true);
         toast.success(t("toast.translationAutoPolish"));
       }
     } catch {
       toast.error(t("toast.translationSaveFailed"));
     }
-  }, [aiPolishApiKey, aiPolishKeySave]);
+  }, []);
 
   const handleCustomPromptChange = useCallback((value: string) => {
     setCustomPromptState(value);
@@ -2585,10 +2546,14 @@ export default function SettingsPage({
                   key={key}
                   className="input-method-item"
                   aria-pressed={inputMethod === key}
-                  onClick={() => {
-                    setInputMethod(key);
-                    writeLocalStorage(INPUT_METHOD_KEY, key);
-                    setInputMethodCommand(key).catch(() => {});
+                  onClick={async () => {
+                    try {
+                      const selected = await setInputMethodCommand(key);
+                      setInputMethod(selected);
+                      writeLocalStorage(INPUT_METHOD_KEY, selected);
+                    } catch (error) {
+                      toast.error(String(error));
+                    }
                   }}
                 >
                   <Icon size={18} strokeWidth={1.5} style={{ color: inputMethod === key ? "var(--color-accent)" : "var(--color-text-tertiary)", flexShrink: 0 }} />
@@ -2647,10 +2612,8 @@ export default function SettingsPage({
                   aria-label={t("settings.enableAiPolish")}
                   onClick={() => {
                     const next = !aiPolishEnabled;
-                    aiPolishKeySave.cancel();
                     setAiPolishEnabled(next);
                     writeLocalStorage(AI_POLISH_ENABLED_KEY, String(next));
-                    setAiPolishConfig(next, aiPolishApiKey).catch(() => {});
                   }}
                   className="toggle-switch"
                   style={{
@@ -2887,7 +2850,6 @@ export default function SettingsPage({
                                         nextAssistantModel,
                                         assistantProviderToPersist,
                                       ).catch(() => {});
-                                      await refreshAiPolishKey();
                                     });
                                   }}
                                 >{t("common.add")}</button>
@@ -2955,15 +2917,16 @@ export default function SettingsPage({
                 <div className="settings-column" style={{ gap: 6 }}>
                   <span className="settings-option-desc">{t("settings.apiKey")}</span>
                   <SecretInput
+                    disabled={polishKey.loading}
                     value={aiPolishApiKey}
                     placeholder={`${currentLlmPreset.label} API Key`}
                     ariaLabelShow={t("settings.showApiKey")}
                     ariaLabelHide={t("settings.hideApiKey")}
                     onChange={(value) => {
                       setAiPolishApiKey(value);
-                      aiPolishKeySave.schedule(value, aiPolishEnabled);
                     }}
                   />
+                  <button type="button" className="btn-ghost btn-ghost-xs" disabled={polishKey.loading} onClick={() => void polishKey.remove()}>{t("settings.deleteSavedApiKey")}</button>
                 </div>
 
                 {renderOpenaiCodexOauthBlock("polish")}
@@ -3322,6 +3285,7 @@ export default function SettingsPage({
                       <div className="settings-column" style={{ gap: 4 }}>
                         <span className="settings-option-desc">{currentAssistantPreset.label} API Key</span>
                         <SecretInput
+                          disabled={assistantKey.loading}
                           value={assistantApiKeyState}
                           placeholder={`${currentAssistantPreset.label} API Key`}
                           ariaLabel={t("settings.assistantApiKey")}
@@ -3329,9 +3293,9 @@ export default function SettingsPage({
                           ariaLabelHide={t("settings.hideApiKey")}
                           onChange={(value) => {
                             setAssistantApiKeyState(value);
-                            assistantKeySave.schedule(value);
                           }}
                         />
+                        <button type="button" className="btn-ghost btn-ghost-xs" disabled={assistantKey.loading} onClick={() => void assistantKey.remove()}>{t("settings.deleteSavedApiKey")}</button>
                       </div>
                       {shouldShowGrokBuildAuth(effectiveAssistantProvider) && renderGrokBuildOauthBlock("assistant")}
                     </>
@@ -3831,10 +3795,6 @@ export default function SettingsPage({
             setValidationProvider={setValidationProvider}
             validationModel={validationModel}
             setValidationModel={setValidationModel}
-            validationRunning={validationRunning}
-            setValidationRunning={setValidationRunning}
-            validationResult={validationResult}
-            setValidationResult={setValidationResult}
             returnFocusRef={correctionManageButtonRef}
             onClose={() => setCorrectionModalOpen(false)}
             onRefreshProfile={refreshProfile}

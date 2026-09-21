@@ -30,12 +30,15 @@ struct WordSpan {
 }
 
 pub fn correct_qwen_profile_terms(text: &str, profile: &UserProfile) -> HotWordCorrection {
-    let hot_words = correct_qwen_hot_words(text, &profile.hot_words);
-    let aliases = correct_known_aliases(
-        &hot_words.text,
-        &profile.hot_words,
-        &profile.correction_patterns,
-    );
+    let ranked_words: Vec<&HotWord> =
+        super::hotword_learning::ranked(profile, super::hotword_learning::now())
+            .into_iter()
+            .take(MAX_ASR_HOT_WORDS)
+            .map(|(word, _, _)| word)
+            .collect();
+    let hot_words = correct_ordered_hot_words(text, &ranked_words);
+    let aliases =
+        correct_known_aliases(&hot_words.text, &ranked_words, &profile.correction_patterns);
 
     HotWordCorrection {
         text: aliases.text,
@@ -43,7 +46,15 @@ pub fn correct_qwen_profile_terms(text: &str, profile: &UserProfile) -> HotWordC
     }
 }
 
+#[cfg(test)]
 pub fn correct_qwen_hot_words(text: &str, hot_words: &[HotWord]) -> HotWordCorrection {
+    let mut ranked: Vec<&HotWord> = hot_words.iter().collect();
+    ranked.sort_by(|a, b| b.weight.cmp(&a.weight).then(b.use_count.cmp(&a.use_count)));
+    ranked.truncate(MAX_ASR_HOT_WORDS);
+    correct_ordered_hot_words(text, &ranked)
+}
+
+fn correct_ordered_hot_words(text: &str, hot_words: &[&HotWord]) -> HotWordCorrection {
     if text.is_empty() || hot_words.is_empty() {
         return HotWordCorrection {
             text: text.to_owned(),
@@ -51,15 +62,11 @@ pub fn correct_qwen_hot_words(text: &str, hot_words: &[HotWord]) -> HotWordCorre
         };
     }
 
-    let mut ranked: Vec<&HotWord> = hot_words.iter().collect();
-    ranked.sort_by(|a, b| b.weight.cmp(&a.weight).then(b.use_count.cmp(&a.use_count)));
-    ranked.truncate(MAX_ASR_HOT_WORDS);
-
     let chars = indexed_chars(text);
     let ascii_words = ascii_word_spans(text);
     let mut candidates = Vec::new();
 
-    for (rank, hot_word) in ranked.into_iter().enumerate() {
+    for (rank, hot_word) in hot_words.iter().enumerate() {
         let hot_text = hot_word.text.trim();
         if hot_text.is_empty() || text.contains(hot_text) {
             continue;
@@ -112,21 +119,25 @@ pub fn correct_qwen_hot_words(text: &str, hot_words: &[HotWord]) -> HotWordCorre
 
 fn correct_known_aliases(
     text: &str,
-    hot_words: &[HotWord],
+    hot_words: &[&HotWord],
     correction_patterns: &[CorrectionPattern],
 ) -> HotWordCorrection {
-    if text.is_empty() || hot_words.is_empty() || correction_patterns.is_empty() {
+    if text.is_empty()
+        || hot_words.is_empty()
+        || correction_patterns.is_empty()
+        || !correction_patterns.iter().any(|pattern| {
+            let original = pattern.original.trim();
+            !original.is_empty() && text.contains(original)
+        })
+    {
         return HotWordCorrection {
             text: text.to_owned(),
             replacements: 0,
         };
     }
 
-    let mut ranked_hot_words: Vec<&HotWord> = hot_words.iter().collect();
-    ranked_hot_words.sort_by(|a, b| b.weight.cmp(&a.weight).then(b.use_count.cmp(&a.use_count)));
-    ranked_hot_words.truncate(MAX_ASR_HOT_WORDS);
-    let hot_targets: HashSet<String> = ranked_hot_words
-        .into_iter()
+    let hot_targets: HashSet<String> = hot_words
+        .iter()
         .map(|hot_word| normalize_profile_term(hot_word.text.trim()))
         .filter(|normalized| !normalized.is_empty())
         .collect();
@@ -357,8 +368,7 @@ fn collect_ascii_candidates<'a>(
                 continue;
             }
 
-            let distance = levenshtein(&candidate_normalized, &hot_normalized);
-            if distance == 0 {
+            if candidate_normalized == hot_normalized {
                 candidates.push(ReplacementCandidate {
                     start,
                     end,
@@ -377,9 +387,12 @@ fn collect_ascii_candidates<'a>(
             }
 
             let max_distance = if hot_normalized.len() >= 10 { 2 } else { 1 };
-            if distance > max_distance
-                || candidate_normalized.len().abs_diff(hot_normalized.len()) > max_distance
-            {
+            // 长度差已超过上限时，无需执行编辑距离动态规划。
+            if candidate_normalized.len().abs_diff(hot_normalized.len()) > max_distance {
+                continue;
+            }
+            let distance = levenshtein(&candidate_normalized, &hot_normalized);
+            if distance > max_distance {
                 continue;
             }
 

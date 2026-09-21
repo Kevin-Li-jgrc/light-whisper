@@ -41,6 +41,8 @@ const tauriMock = vi.hoisted(() => ({
   removeCustomProvider: vi.fn(),
   removeHotWord: vi.fn(),
   setAiPolishConfig: vi.fn(),
+  saveProviderApiKey: vi.fn(),
+  deleteProviderApiKey: vi.fn(),
   setAiPolishScreenContextEnabled: vi.fn(),
   setScreenContextEnabled: vi.fn(),
   setAlibabaAsrModel: vi.fn(),
@@ -329,6 +331,28 @@ function modelInfo(id: string, ownedBy = "test-owner"): AiModelInfo {
 
 beforeEach(() => resetMocks());
 afterEach(() => vi.clearAllMocks());
+
+describe("SettingsPage credential safety", () => {
+  it("never writes credentials while opening settings or toggling polish", async () => {
+    tauriMock.getAiPolishApiKey.mockResolvedValue("saved-key");
+    await renderSettings();
+    await waitFor(() => expect(screen.getByPlaceholderText("Cerebras API Key")).toHaveValue("saved-key"));
+    fireEvent.click(screen.getByRole("switch", { name: "settings.enableAiPolish" }));
+    await waitFor(() => expect(tauriMock.setAiPolishConfig).toHaveBeenCalled());
+    expect(tauriMock.setAiPolishConfig.mock.calls.every((args) => args.length === 1)).toBe(true);
+    expect(tauriMock.saveProviderApiKey).not.toHaveBeenCalled();
+    expect(tauriMock.deleteProviderApiKey).not.toHaveBeenCalled();
+  });
+
+  it("reports credential read failures without writing an empty key", async () => {
+    tauriMock.getAiPolishApiKey.mockRejectedValue(new Error("keyring unavailable"));
+    await renderSettings();
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
+    expect(tauriMock.setAiPolishConfig.mock.calls.every((args) => args.length === 1)).toBe(true);
+    expect(tauriMock.saveProviderApiKey).not.toHaveBeenCalled();
+    expect(tauriMock.deleteProviderApiKey).not.toHaveBeenCalled();
+  });
+});
 
 describe("SettingsPage provider configuration saves", () => {
   it("selects OpenCode Go for polish and persists its model without creating a custom provider", async () => {

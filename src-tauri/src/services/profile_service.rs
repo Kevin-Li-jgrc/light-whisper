@@ -55,7 +55,217 @@ pub fn load_profile() -> UserProfile {
 pub fn normalize_profile(profile: &mut UserProfile) -> ProfileCleanupStats {
     migrate_custom_provider(profile);
     migrate_reasoning_modes(profile);
-    cleanup_profile(profile)
+    let stats = cleanup_profile(profile);
+    super::correction_audit::prune(profile);
+    stats
+}
+
+/// 导入与审核/确认删除互斥；清除外部画像的报告授权后再提交。
+pub async fn import_profile<R, F, Fut>(
+    state: &AppState,
+    json: &str,
+    persist: F,
+) -> Result<R, String>
+where
+    F: FnOnce(UserProfile) -> Fut,
+    Fut: std::future::Future<Output = Result<R, String>>,
+{
+    let _guard =
+        super::correction_audit::AuditGuard::acquire(&state.profile.correction_audit_running)?;
+    let mut imported: UserProfile =
+        serde_json::from_str(json).map_err(|e| format!("解析画像数据失败: {e}"))?;
+    imported.correction_audit.cache.clear();
+    imported.correction_audit.report = None;
+    normalize_profile(&mut imported);
+    persist(imported).await
+}
+
+/// 在保存事务持有画像锁后调用，旧备份保留提交时的全局设置。
+pub fn replace_imported_profile(
+    profile: &mut UserProfile,
+    mut imported: UserProfile,
+    legacy: &str,
+) {
+    if imported.input_method.is_none() {
+        imported.input_method = Some(profile.effective_input_method(legacy));
+    }
+    *profile = imported;
+}
+
+/// 即使前端还未完成旧缓存迁移，备份也始终带上当前有效的全局输入方式。
+pub fn export_profile(state: &AppState) -> Result<String, String> {
+    let legacy = state.ui.input_method.lock().clone();
+    let mut profile = state.snapshot_profile();
+    profile.input_method = Some(profile.effective_input_method(&legacy));
+    serialize_profile(&profile)
+}
+
+#[cfg(test)]
+mod input_config_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn input_config_round_trip_keeps_global_and_complete_ordered_app_rules() {
+        let state = AppState::default();
+        let mut value = serde_json::to_value(UserProfile::default()).unwrap();
+        value["input_method"] = serde_json::json!("clipboard");
+        value["app_profile_rules"] = serde_json::json!([
+            {"id":"chat", "name":"微信", "enabled":true, "process_name":"Weixin.exe",
+             "window_title_contains":"工作", "input_method":"sendInput", "ai_polish":"disabled",
+             "translation":"target", "translation_target":"English", "screen_context":"enabled",
+             "history":"disabled", "custom_prompt":"保留原文标点"},
+            {"id":"browser", "name":"浏览器", "enabled":false, "process_name":"chrome.exe",
+             "input_method":"inherit"}
+        ]);
+        let original: UserProfile = serde_json::from_value(value).unwrap();
+        state.update_profile_mut(|p| *p = original.clone());
+        let exported = export_profile(&state).unwrap();
+        let imported = import_profile(&state, &exported, |p| async { Ok(p) })
+            .await
+            .unwrap();
+        let restored = serde_json::to_value(&imported).unwrap();
+        assert_eq!(restored["input_method"], "clipboard");
+        assert_eq!(
+            restored["app_profile_rules"],
+            serde_json::to_value(&original).unwrap()["app_profile_rules"]
+        );
+        assert_eq!(
+            imported.resolve_input_method("Weixin.exe", "工作群", "sendInput"),
+            "sendInput"
+        );
+        assert_eq!(
+            imported.resolve_input_method("chrome.exe", "网页", "sendInput"),
+            "clipboard"
+        );
+    }
+
+    #[tokio::test]
+    async fn input_config_legacy_import_preserves_current_global_method() {
+        let state = AppState::default();
+        *state.ui.input_method.lock() = "clipboard".into();
+        let json = serialize_profile(&UserProfile::default()).unwrap();
+        let imported = import_profile(&state, &json, |p| async {
+            let legacy = state.ui.input_method.lock().clone();
+            Ok(state
+                .update_profile(|current| replace_imported_profile(current, p, &legacy))
+                .1)
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(imported).unwrap()["input_method"],
+            "clipboard"
+        );
+    }
+
+    #[tokio::test]
+    async fn input_config_invalid_global_method_never_reaches_persistence() {
+        let state = AppState::default();
+        let mut value = serde_json::to_value(UserProfile::default()).unwrap();
+        value["input_method"] = serde_json::json!("inherit");
+        let result = import_profile(&state, &value.to_string(), |_| async {
+            Err::<(), _>("unexpected persistence".into())
+        })
+        .await;
+        assert!(result.unwrap_err().contains("解析画像数据失败"));
+    }
+
+    #[test]
+    fn input_config_startup_migration_does_not_overwrite_imported_setting() {
+        let mut profile = UserProfile::default();
+        assert_eq!(
+            profile.set_input_method(InputMethod::Clipboard, true),
+            InputMethod::Clipboard
+        );
+        assert_eq!(
+            profile.set_input_method(InputMethod::SendInput, true),
+            InputMethod::Clipboard
+        );
+        assert_eq!(
+            profile.set_input_method(InputMethod::SendInput, false),
+            InputMethod::SendInput
+        );
+        let restarted: UserProfile =
+            serde_json::from_str(&serialize_profile(&profile).unwrap()).unwrap();
+        assert_eq!(
+            restarted.effective_input_method("clipboard"),
+            InputMethod::SendInput
+        );
+    }
+
+    #[test]
+    fn input_config_export_always_includes_current_method_before_migration() {
+        let state = AppState::default();
+        for method in ["sendInput", "clipboard"] {
+            *state.ui.input_method.lock() = method.into();
+            let value: serde_json::Value =
+                serde_json::from_str(&export_profile(&state).unwrap()).unwrap();
+            assert_eq!(value["input_method"], method);
+        }
+    }
+
+    #[tokio::test]
+    async fn input_config_legacy_import_prefers_saved_method_over_stale_cache() {
+        let state = AppState::default();
+        state.update_profile_mut(|p| p.input_method = Some(InputMethod::Clipboard));
+        let json = serialize_profile(&UserProfile::default()).unwrap();
+        let imported = import_profile(&state, &json, |p| async {
+            Ok(state
+                .update_profile(|current| replace_imported_profile(current, p, "sendInput"))
+                .1)
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            imported.effective_input_method("sendInput"),
+            InputMethod::Clipboard
+        );
+    }
+
+    #[tokio::test]
+    async fn input_config_legacy_import_keeps_setting_changed_while_waiting_to_commit() {
+        let state = AppState::default();
+        state.update_profile_mut(|p| p.input_method = Some(InputMethod::SendInput));
+        let json = serialize_profile(&UserProfile::default()).unwrap();
+        let imported = import_profile(&state, &json, |p| async {
+            // 模拟用户设置先取得保存锁，并在导入提交之前完成。
+            state.update_profile_mut(|current| current.input_method = Some(InputMethod::Clipboard));
+            Ok(state
+                .update_profile(|current| replace_imported_profile(current, p, "sendInput"))
+                .1)
+        })
+        .await
+        .unwrap();
+        assert_eq!(imported.input_method, Some(InputMethod::Clipboard));
+    }
+
+    #[test]
+    fn input_config_failed_import_write_leaves_current_method_and_rules_unchanged() {
+        let mut current = UserProfile {
+            input_method: Some(InputMethod::SendInput),
+            ..Default::default()
+        };
+        let mut imported = UserProfile {
+            input_method: Some(InputMethod::Clipboard),
+            ..Default::default()
+        };
+        imported.app_profile_rules.push(AppProfileRule {
+            id: "new".into(),
+            process_name: "Weixin.exe".into(),
+            ..Default::default()
+        });
+        let result = commit_candidate(
+            &mut current,
+            |candidate| {
+                replace_imported_profile(candidate, imported, "sendInput");
+                Ok(())
+            },
+            |_| Err("disk full".into()),
+        );
+        assert!(result.is_err());
+        assert_eq!(current.input_method, Some(InputMethod::SendInput));
+        assert!(current.app_profile_rules.is_empty());
+    }
 }
 
 fn migrate_reasoning_modes(profile: &mut UserProfile) {
@@ -130,19 +340,214 @@ fn take_pending_profile_save_if(
 
 async fn write_profile_async(profile: &UserProfile) -> Result<(), String> {
     let path = paths::get_data_dir().join("user_profile.json");
+    let profile = profile.clone();
+    tokio::task::spawn_blocking(move || {
+        write_profile_if_newer(&profile, &path, &LAST_WRITTEN_REVISION)
+    })
+    .await
+    .map_err(|e| format!("写入任务异常: {}", e))?
+}
+
+fn backup_before_hotword_learning(path: &std::path::Path) -> std::io::Result<()> {
+    backup_before_schema(path, "hotword_learning", "hotword-learning")
+}
+
+fn backup_before_schema(path: &std::path::Path, field: &str, name: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let old = match std::fs::read(path) {
+        Ok(old) => old,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if serde_json::from_slice::<serde_json::Value>(&old)
+        .ok()
+        .is_some_and(|value| value.get(field).is_some())
+    {
+        return Ok(());
+    }
+    let mut backup = path.with_file_name(format!("user_profile.before-{name}.json"));
+    if backup.exists() {
+        if std::fs::read(&backup)? == old {
+            return Ok(());
+        }
+        // 旧备份或上次失败留下的半成品不能冒充当前原文件的完整备份。
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        backup = path.with_file_name(format!("user_profile.before-{name}.{stamp}.json"));
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&backup)?;
+    file.write_all(&old)?;
+    file.sync_all()
+}
+
+static NEXT_REVISION: AtomicU64 = AtomicU64::new(0);
+static LAST_WRITTEN_REVISION: AtomicU64 = AtomicU64::new(0);
+pub fn next_revision() -> u64 {
+    NEXT_REVISION.fetch_add(1, Ordering::SeqCst) + 1
+}
+
+// 调用方统一持有保存锁；旧快照不能把已确认删除的数据写回。
+fn write_profile_if_newer(
+    profile: &UserProfile,
+    path: &std::path::Path,
+    revision: &AtomicU64,
+) -> Result<(), String> {
+    if profile.persistence_revision < revision.load(Ordering::SeqCst) {
+        return Ok(());
+    }
     let data = serialize_profile(profile)?;
-    tokio::task::spawn_blocking(move || paths::atomic_write(&path, data.as_bytes()))
-        .await
-        .map_err(|e| format!("写入任务异常: {}", e))?
-        .map_err(|e| format!("写入失败: {}", e))
+    backup_before_hotword_learning(path).map_err(|e| format!("画像备份失败: {e}"))?;
+    backup_before_schema(path, "correction_audit", "correction-audit")
+        .map_err(|e| format!("审核数据迁移备份失败: {e}"))?;
+    paths::atomic_write(path, data.as_bytes()).map_err(|e| format!("写入失败: {e}"))?;
+    revision.store(profile.persistence_revision, Ordering::SeqCst);
+    Ok(())
+}
+
+fn commit_candidate<R>(
+    profile: &mut UserProfile,
+    change: impl FnOnce(&mut UserProfile) -> Result<R, String>,
+    write: impl FnOnce(&UserProfile) -> Result<(), String>,
+) -> Result<R, String> {
+    let mut candidate = profile.clone();
+    let result = change(&mut candidate)?;
+    candidate.persistence_revision = next_revision();
+    write(&candidate)?;
+    *profile = candidate;
+    Ok(result)
+}
+
+/// 用户确认的操作必须在磁盘写入成功后才提交内存，不依赖防抖保存。
+pub async fn commit_profile<R, F>(state: &AppState, change: F) -> Result<R, String>
+where
+    R: Send + 'static,
+    F: FnOnce(&mut UserProfile) -> Result<R, String> + Send + 'static,
+{
+    let profile = state.profile.user_profile.clone();
+    let write_guard = profile_save_lock().lock().await;
+    let result = tokio::task::spawn_blocking(move || {
+        let _write_guard = write_guard;
+        let mut profile = profile.lock();
+        let path = paths::get_data_dir().join("user_profile.json");
+        commit_candidate(&mut profile, change, |candidate| {
+            write_profile_if_newer(candidate, &path, &LAST_WRITTEN_REVISION)
+        })
+    })
+    .await
+    .map_err(|e| format!("保存事务异常: {e}"))?;
+    result
+}
+
+#[cfg(test)]
+mod learning_backup_tests {
+    #[test]
+    fn audit_transaction_rolls_back_memory_when_persistence_fails() {
+        let mut profile = crate::state::user_profile::UserProfile {
+            total_transcriptions: 7,
+            ..Default::default()
+        };
+        let result = super::commit_candidate(
+            &mut profile,
+            |candidate| {
+                candidate.total_transcriptions = 99;
+                Ok(())
+            },
+            |_| Err("disk full".into()),
+        );
+        assert!(result.is_err());
+        assert_eq!(profile.total_transcriptions, 7);
+    }
+
+    #[test]
+    fn older_snapshot_cannot_overwrite_a_committed_deletion() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("light-whisper-audit-save-{stamp}"));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("user_profile.json");
+        let revision = std::sync::atomic::AtomicU64::new(0);
+        let mut profile = crate::state::user_profile::UserProfile {
+            persistence_revision: 20,
+            total_transcriptions: 20,
+            ..Default::default()
+        };
+        super::write_profile_if_newer(&profile, &path, &revision).unwrap();
+        profile.persistence_revision = 10;
+        profile.total_transcriptions = 10;
+        super::write_profile_if_newer(&profile, &path, &revision).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(value["total_transcriptions"], 20);
+        assert!(value.get("persistence_revision").is_none());
+    }
+
+    #[test]
+    fn audit_schema_has_its_own_backup_after_hotword_migration() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("light-whisper-audit-backup-{stamp}"));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("user_profile.json");
+        let original = br#"{"hotword_learning":{},"correction_patterns":[]}"#;
+        std::fs::write(&path, original).unwrap();
+        super::backup_before_schema(&path, "correction_audit", "correction-audit").unwrap();
+        assert_eq!(
+            std::fs::read(dir.join("user_profile.before-correction-audit.json")).unwrap(),
+            original
+        );
+    }
+    #[test]
+    fn a_partial_existing_backup_cannot_replace_the_complete_original_backup() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("light-whisper-learning-backup-{stamp}"));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("user_profile.json");
+        let original = br#"{"hot_words":[],"last_updated":123}"#;
+        std::fs::write(&path, original).unwrap();
+        let prior = dir.join("user_profile.before-hotword-learning.json");
+        std::fs::write(&prior, b"partial").unwrap();
+        super::backup_before_hotword_learning(&path).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(std::fs::read(&prior).unwrap(), b"partial");
+        let complete_backups = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.path() != path)
+            .filter(|entry| std::fs::read(entry.path()).unwrap() == original)
+            .count();
+        assert_eq!(complete_backups, 1);
+    }
 }
 
 pub fn schedule_profile_save(profile: UserProfile) {
-    let generation = profile_save_generation().fetch_add(1, Ordering::SeqCst) + 1;
-    *pending_profile_save_slot().lock() = Some(PendingProfileSave {
-        generation,
-        profile,
-    });
+    let generation = {
+        let mut slot = pending_profile_save_slot().lock();
+        if profile.persistence_revision < LAST_WRITTEN_REVISION.load(Ordering::SeqCst)
+            || slot.as_ref().is_some_and(|saved| {
+                saved.profile.persistence_revision > profile.persistence_revision
+            })
+        {
+            return;
+        }
+        let generation = profile_save_generation().fetch_add(1, Ordering::SeqCst) + 1;
+        *slot = Some(PendingProfileSave {
+            generation,
+            profile,
+        });
+        generation
+    };
 
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(PROFILE_SAVE_DEBOUNCE_MS)).await;
@@ -175,10 +580,10 @@ pub fn update_profile_and_schedule<R>(
 }
 
 pub async fn save_profile_async(profile: &UserProfile) -> Result<(), String> {
-    let generation = profile_save_generation().fetch_add(1, Ordering::SeqCst) + 1;
-    take_pending_profile_save_if(|pending| pending.generation <= generation);
-
     let _write_guard = profile_save_lock().lock().await;
+    take_pending_profile_save_if(|pending| {
+        pending.profile.persistence_revision <= profile.persistence_revision
+    });
     write_profile_async(profile).await
 }
 
@@ -605,6 +1010,9 @@ pub fn remove_hot_word(profile: &mut UserProfile, text: &str) {
 
 /// 批量删除只遍历一次词库，并保留“不再自动学回”的现有行为。
 pub fn remove_hot_words(profile: &mut UserProfile, texts: &[String]) -> usize {
+    for text in texts {
+        super::hotword_learning::reset(profile, text, now_secs());
+    }
     let keys: HashSet<String> = texts
         .iter()
         .filter_map(|text| normalize_hot_word_key(text).map(|(_, key)| key))
@@ -617,6 +1025,10 @@ pub fn remove_hot_words(profile: &mut UserProfile, texts: &[String]) -> usize {
     profile
         .vocab_frequency
         .retain(|word, _| normalize_hot_word_key(word).is_none_or(|(_, key)| !keys.contains(&key)));
+    profile
+        .hotword_learning
+        .words
+        .retain(|key, _| !keys.contains(key));
     profile.blocked_hot_words.extend(keys);
     sanitize_blocked_hot_words(profile);
     profile.last_updated = now_secs();
@@ -759,6 +1171,9 @@ pub fn learn_from_correction(
     profile.last_updated = now;
 
     for (orig_seg, pol_seg) in collect_diff_correction_pairs(&[original], polished) {
+        if !super::correction_audit::allow_learning(profile, &orig_seg, &pol_seg, &source) {
+            continue;
+        }
         upsert_correction(
             &mut profile.correction_patterns,
             &orig_seg,
@@ -810,6 +1225,9 @@ pub fn learn_from_structured(
     profile.last_updated = now;
 
     for (orig, corrected) in corrections {
+        if !super::correction_audit::allow_learning(profile, orig, corrected, &source) {
+            continue;
+        }
         upsert_correction(
             &mut profile.correction_patterns,
             orig,

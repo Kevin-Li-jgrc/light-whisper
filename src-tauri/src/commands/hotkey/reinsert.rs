@@ -237,7 +237,7 @@ pub(super) fn handle_press(hook: Arc<UnifiedHookState>) {
             let Some(text) = state.recording.reinsert.text() else {
                 return "empty";
             };
-            let method = state.ui.input_method.lock().clone();
+            let method = crate::commands::clipboard::resolve_target_input_method(&app);
             match crate::commands::clipboard::paste_text_unlocked(&app, &text, &method).await {
                 Ok(_) => "sent",
                 Err(error) => {
