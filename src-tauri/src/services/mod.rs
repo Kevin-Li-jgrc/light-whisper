@@ -14,6 +14,9 @@ pub mod history_service;
 pub mod hotword_learning;
 pub mod llm_client;
 pub mod llm_provider;
+pub mod local_llm;
+#[cfg(test)]
+mod local_llm_tests;
 pub mod profile_service;
 pub mod qwen_hotword_service;
 pub mod screen_capture_service;

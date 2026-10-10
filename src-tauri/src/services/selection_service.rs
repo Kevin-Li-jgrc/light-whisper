@@ -1639,7 +1639,13 @@ fn run_selection_worker(
                 let Some(source_app) = foreground_app_source(&config.excluded_apps) else {
                     continue;
                 };
-                let screenshot_task = if config.auto_screenshot {
+                let screenshot_task = if config.auto_screenshot
+                    && app_handle
+                        .state::<AppState>()
+                        .llm_provider_config()
+                        .resolve_selection_provider()
+                        != "local"
+                {
                     match std::thread::Builder::new()
                         .name("selection-screenshot".to_string())
                         .spawn(move || {

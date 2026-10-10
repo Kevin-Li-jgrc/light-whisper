@@ -1,0 +1,9 @@
+{
+  "build": {
+    "beforeBuildCommand": "node scripts/verify_engine_archive.mjs && pnpm exec tsc && pnpm exec vite build --outDir build/local-ai-dist-verified && node scripts/check_bundle_budget.mjs build/local-ai-dist-verified",
+    "frontendDist": "../build/local-ai-dist-verified"
+  },
+  "bundle": {
+    "windows": { "nsis": { "compression": "zlib" } }
+  }
+}

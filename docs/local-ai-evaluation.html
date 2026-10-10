@@ -1,0 +1,478 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>本地双模型评测</title><style>body{font:15px/1.6 system-ui;margin:32px;color:#203040}table{border-collapse:collapse;width:100%;margin:20px 0}th,td{border:1px solid #ccd4df;padding:10px;vertical-align:top}th{background:#eef3f9}pre{white-space:pre-wrap;font-size:12px}.bad{background:#fff0ef}.scroll{overflow:auto}button{padding:8px 14px;margin-right:8px}small{color:#617080}</style><h1>本地双模型：60 条固定样例</h1><p>开发机：i9-11950H、64GB RAM、RTX A4000 Laptop 8GB；Windows x64，llama.cpp b11118，Q8，8192 上下文，关闭思考，单并发。复用软件基础润色提示词和默认 off 结构策略，无用户术语、历史纠错或屏幕信息。</p><p><b>结构有效不等于语义正确。</b>这是一轮开发机测量，非隔离实验；时延仅为引擎请求，不包含识别、排队、完整请求分词校验及最终粘贴。云端对照、低配实机和完整流程验收尚未完成。人工审核状态：待审；下列提示是 AI 抽查。</p><h2>速度与结构</h2><table><tr><th>模型 / 设备</th><th>结构有效</th><th>首字中位数 / P95</th><th>生成中位数 / P95</th></tr><tr><td>LFM2.5-1.2B-Instruct / CPU</td><td>52/60</td><td>773 / 989 ms</td><td>2635 / 4501 ms</td></tr><tr><td>Qwen3.5-0.8B / CPU</td><td>60/60</td><td>226 / 295 ms</td><td>1098 / 1850 ms</td></tr><tr><td>LFM2.5-1.2B-Instruct / CUDA</td><td>53/60</td><td>35 / 44 ms</td><td>268 / 521 ms</td></tr><tr><td>Qwen3.5-0.8B / CUDA</td><td>60/60</td><td>60 / 63 ms</td><td>219 / 336 ms</td></tr></table><h2>已发现的质量问题</h2><ul><li>Qwen 中文 #12 遗漏“去苏州”；#4 遗漏“其他内容不要改”；#14 的断句可能改变模型切换的时间关系。</li><li>LFM 中文 #16 将具体要求改写成“整理后文本”；#4 遗漏限制；部分纠错明细生成了未支持的类型，会被软件拒绝。</li><li>两款模型都有术语字段过度提取的情况。这些结果不足以证明达到云端质量，不能用格式通过率表示准确率。</li></ul><h2>逐条比较</h2><p><button onclick="filterRows('all')">全部</button><button onclick="filterRows('zh')">中文</button><button onclick="filterRows('en')">英文</button><button onclick="filterRows('mixed')">混输</button></p><div class="scroll"><table><thead><tr><th>原文</th><th>LFM2.5-1.2B-Instruct / CPU</th><th>Qwen3.5-0.8B / CPU</th><th>LFM2.5-1.2B-Instruct / CUDA</th><th>Qwen3.5-0.8B / CUDA</th><th>云端对照</th></tr></thead><tbody><tr data-language="zh"><td style="min-width:220px">zh #1<br>呃明天下午三点开会不是两点请提醒大家带上接口文档</td><td class="" style="min-width:230px">明天下午三点开会不是两点，请提醒大家带上接口文档<br><small>15635 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;明天下午三点开会不是两点，请提醒大家带上接口文档&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;明天下午三点&quot;, &quot;接口文档&quot;]
+}</pre></details></td><td class="" style="min-width:230px">明天下午三点开会，请提醒大家带上接口文档。<br><small>7271 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;明天下午三点开会，请提醒大家带上接口文档。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;接口文档&quot;]}</pre></details></td><td class="" style="min-width:230px">明天下午三点开会不是两点，请提醒大家带上接口文档<br><small>465 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;明天下午三点开会不是两点，请提醒大家带上接口文档&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;下午三点&quot;, &quot;接口文档&quot;]
+}</pre></details></td><td class="" style="min-width:230px">明天下午三点开会，请提醒大家带上接口文档。<br><small>424 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;明天下午三点开会，请提醒大家带上接口文档。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;接口文档&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #2<br>这个订单的金额是一千零八元不是一千八百元请核对一下</td><td class="bad" style="min-width:230px">这个订单的金额是一千零八元不是一千八百元，请核对一下<br><small>4501 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;这个订单的金额是一千零八元不是一千八百元，请核对一下&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;金额是一千零八元&quot;, &quot;corrected&quot;: &quot;金额是一千八元&quot;,
+        &quot;type&quot;: &quot;amount_adjustment&quot;}],
+  &quot;key_terms&quot;: [&quot;金额&quot;, &quot;订单&quot;, &quot;金元&quot;]
+}</pre></details></td><td class="" style="min-width:230px">这个订单的金额是一千零八元，请核对一下。<br><small>1017 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;这个订单的金额是一千零八元，请核对一下。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;订单金额&quot;]}</pre></details></td><td class="bad" style="min-width:230px">这个订单的金额是一千零八元不是一千八百元，请核对一下<br><small>471 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;这个订单的金额是一千零八元不是一千八百元，请核对一下&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;金额是一千零八元&quot;, &quot;corrected&quot;: &quot;金额是一千八元&quot;,
+        &quot;type&quot;: &quot;amount_adjustment&quot;}],
+  &quot;key_terms&quot;: [&quot;金额&quot;, &quot;订单&quot;, &quot;金元&quot;]
+}</pre></details></td><td class="" style="min-width:230px">这个订单的金额是一千零八元，请核对一下。<br><small>198 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;这个订单的金额是一千零八元，请核对一下。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;订单金额&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #3<br>我不是说取消发布我是说推迟到周五再发布</td><td class="" style="min-width:230px">我不是说取消发布，我是说推迟到周五再发布。<br><small>2831 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我不是说取消发布，我是说推迟到周五再发布。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;推迟&quot;, &quot;周五&quot;]
+}</pre></details></td><td class="" style="min-width:230px">我不是说取消发布，我是说推迟到周五再发布。<br><small>1014 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我不是说取消发布，我是说推迟到周五再发布。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;发布&quot;]}</pre></details></td><td class="" style="min-width:230px">我不是说取消发布，我是说推迟到周五再发布。<br><small>278 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我不是说取消发布，我是说推迟到周五再发布。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;推迟&quot;, &quot;周五&quot;]
+}</pre></details></td><td class="" style="min-width:230px">我不是说取消发布，而是说推迟到周五再发布。<br><small>202 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我不是说取消发布，而是说推迟到周五再发布。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;发布&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #4<br>请把客户的名字从李明改成黎明其他内容不要改</td><td class="" style="min-width:230px">请把客户的名字从李明改成黎明<br><small>2637 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;请把客户的名字从李明改成黎明&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;客户&quot;, &quot;名字&quot;]
+}</pre></details></td><td class="" style="min-width:230px">请把客户的名字改成黎明。<br><small>859 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;请把客户的名字改成黎明。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;李明&quot;,&quot;黎明&quot;]}</pre></details></td><td class="" style="min-width:230px">请把客户的名字从李明改成黎明<br><small>245 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;请把客户的名字从李明改成黎明&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;客户&quot;, &quot;名字&quot;]
+}</pre></details></td><td class="" style="min-width:230px">请把客户的名字改成黎明。<br><small>181 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;请把客户的名字改成黎明。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;李明&quot;,&quot;黎明&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #5<br>嗯这个功能我们暂时不做自动同步只支持手动同步</td><td class="" style="min-width:230px">我们暂时不支持自动同步，只支持手动同步<br><small>2685 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我们暂时不支持自动同步，只支持手动同步&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;手动同步&quot;]
+}</pre></details></td><td class="" style="min-width:230px">嗯，这个功能暂时不做自动同步，只支持手动同步。<br><small>1013 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;嗯，这个功能暂时不做自动同步，只支持手动同步。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;功能&quot;]}</pre></details></td><td class="" style="min-width:230px">我们暂时不支持自动同步，只支持手动同步<br><small>239 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我们暂时不支持自动同步，只支持手动同步&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;手动同步&quot;]
+}</pre></details></td><td class="" style="min-width:230px">嗯，这个功能暂时不做自动同步，只支持手动同步。<br><small>203 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;嗯，这个功能暂时不做自动同步，只支持手动同步。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;功能&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #6<br>今天的温度是零下三点五度设备还没有启动</td><td class="" style="min-width:230px">今天的温度是零下三点五度，设备还没有启动<br><small>2650 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;今天的温度是零下三点五度，设备还没有启动&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;温度&quot;, &quot;设备&quot;]
+}</pre></details></td><td class="" style="min-width:230px">今天的温度是零下三点五度，设备还没有启动。<br><small>1034 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;今天的温度是零下三点五度，设备还没有启动。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;零下三点五度&quot;]}</pre></details></td><td class="" style="min-width:230px">今天的温度是零下三点五度，设备还没有启动<br><small>246 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;今天的温度是零下三点五度，设备还没有启动&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;温度&quot;, &quot;设备&quot;]
+}</pre></details></td><td class="" style="min-width:230px">今天的温度是零下三点五度，设备还没有启动。<br><small>206 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;今天的温度是零下三点五度，设备还没有启动。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;零下三点五度&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #7<br>麻烦帮我记一下会议改到九月二十三号上午九点半</td><td class="" style="min-width:230px">记住会议改到九月二十三号上午九点半<br><small>2531 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;记住会议改到九月二十三号上午九点半&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;会议时间&quot;]
+}</pre></details></td><td class="" style="min-width:230px">麻烦帮我记一下会议改到九月二十三号上午九点半。<br><small>1253 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;麻烦帮我记一下会议改到九月二十三号上午九点半。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;九月二十三号&quot;,&quot;上午九点半&quot;]}</pre></details></td><td class="" style="min-width:230px">记住会议改到九月二十三号上午九点半<br><small>222 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;记住会议改到九月二十三号上午九点半&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;会议时间&quot;]
+}</pre></details></td><td class="" style="min-width:230px">麻烦帮我记一下会议改到九月二十三号上午九点半。<br><small>241 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;麻烦帮我记一下会议改到九月二十三号上午九点半。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;九月二十三号&quot;,&quot;上午九点半&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #8<br>我刚才说错了库存不是十五个是五十个</td><td class="bad" style="min-width:230px">我刚才说错了库存不是十五个是五十个<br><small>3648 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我刚才说错了库存不是十五个是五十个&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;库存不是十五个是五十个&quot;, &quot;corrected&quot;: &quot;库存是五十个&quot;,
+  &quot;type&quot;: &quot;homophone|term&quot;}]
+}</pre></details></td><td class="" style="min-width:230px">我刚才说错了库存不是十五个是五十个。<br><small>990 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我刚才说错了库存不是十五个是五十个。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;库存&quot;]}</pre></details></td><td class="" style="min-width:230px">我刚才说错了库存是五十个，而不是十五个。<br><small>282 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我刚才说错了库存是五十个，而不是十五个。&quot;,&quot;corrections&quot;:[{&quot;original&quot;:&quot;库存&quot;,&quot;corrected&quot;:&quot;库存&quot;,&quot;type&quot;:&quot;term&quot;}],&quot;key_terms&quot;:[&quot;库存&quot;]}</pre></details></td><td class="" style="min-width:230px">我刚才说错了库存不是十五个是五十个。<br><small>205 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我刚才说错了库存不是十五个是五十个。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;库存&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #9<br>我们需要先保存文件然后退出程序最后再关机</td><td class="" style="min-width:230px">保存文件后退出程序，最后关机<br><small>2538 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;保存文件后退出程序，最后关机&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;保存&quot;, &quot;退出&quot;, &quot;关机&quot;]
+}</pre></details></td><td class="" style="min-width:230px">我们需要先保存文件，然后退出程序，最后再关机。<br><small>1148 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我们需要先保存文件，然后退出程序，最后再关机。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;保存文件&quot;,&quot;退出程序&quot;,&quot;关机&quot;]}</pre></details></td><td class="" style="min-width:230px">保存文件后退出程序，最后关机<br><small>243 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;保存文件后退出程序，最后关机&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;保存&quot;, &quot;退出&quot;, &quot;关机&quot;]
+}</pre></details></td><td class="" style="min-width:230px">我们需要先保存文件，然后退出程序，最后再关机。<br><small>240 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我们需要先保存文件，然后退出程序，最后再关机。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;保存文件&quot;,&quot;退出程序&quot;,&quot;关机&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #10<br>这个问题可能和缓存有关但是现在还没有证据</td><td class="" style="min-width:230px">这个问题可能与缓存有关，但目前没有证据。<br><small>2641 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;这个问题可能与缓存有关，但目前没有证据。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;问题&quot;, &quot;缓存&quot;]
+}</pre></details></td><td class="" style="min-width:230px">这个问题可能和缓存有关，但是现在还没有证据。<br><small>883 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;这个问题可能和缓存有关，但是现在还没有证据。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;缓存&quot;]}</pre></details></td><td class="" style="min-width:230px">这个问题可能与缓存有关，但目前没有证据。<br><small>248 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;这个问题可能与缓存有关，但目前没有证据。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;问题&quot;, &quot;缓存&quot;]
+}</pre></details></td><td class="" style="min-width:230px">这个问题可能和缓存有关，但是现在还没有证据。<br><small>195 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;这个问题可能和缓存有关，但是现在还没有证据。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;缓存&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #11<br>请不要删除原始录音也不要覆盖用户的配置文件</td><td class="" style="min-width:230px">请不要删除原始录音也不要覆盖用户的配置文件<br><small>2708 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;请不要删除原始录音也不要覆盖用户的配置文件&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;用户配置文件&quot;]
+}</pre></details></td><td class="" style="min-width:230px">请不要删除原始录音也不要覆盖用户的配置文件。<br><small>857 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;请不要删除原始录音也不要覆盖用户的配置文件。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;配置文件&quot;]}</pre></details></td><td class="" style="min-width:230px">请不要删除原始录音也不要覆盖用户的配置文件<br><small>248 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;请不要删除原始录音也不要覆盖用户的配置文件&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;用户配置文件&quot;]
+}</pre></details></td><td class="" style="min-width:230px">请不要删除原始录音也不要覆盖用户的配置文件。<br><small>186 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;请不要删除原始录音也不要覆盖用户的配置文件。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;配置文件&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #12<br>明天我不去上海我去苏州下午六点之前回来</td><td class="" style="min-width:230px">明天我不去上海，我去苏州下午六点之前回来。<br><small>3005 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;明天我不去上海，我去苏州下午六点之前回来。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;上海&quot;, &quot;苏州&quot;, &quot;下午六点&quot;]
+}</pre></details></td><td class="" style="min-width:230px">明天我不去上海，下午六点之前回来。<br><small>1100 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;明天我不去上海，下午六点之前回来。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;上海&quot;,&quot;苏州&quot;,&quot;下午六点之前&quot;]}</pre></details></td><td class="" style="min-width:230px">明天我不去上海，我去苏州下午六点之前回来。<br><small>298 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;明天我不去上海，我去苏州下午六点之前回来。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;上海&quot;, &quot;苏州&quot;, &quot;下午六点&quot;]
+}</pre></details></td><td class="" style="min-width:230px">明天我不去上海，下午六点之前回来。<br><small>218 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;明天我不去上海，下午六点之前回来。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;上海&quot;,&quot;苏州&quot;,&quot;下午六点之前&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #13<br>这个版本支持中文英文还有中英文混合输入</td><td class="" style="min-width:230px">支持中文英文混合输入<br><small>2284 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;支持中文英文混合输入&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;混合输入&quot;]
+}</pre></details></td><td class="" style="min-width:230px">这个版本支持中文、英文以及中英文混合输入。<br><small>970 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;这个版本支持中文、英文以及中英文混合输入。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;中文&quot;,&quot;英文&quot;]}</pre></details></td><td class="" style="min-width:230px">支持中文英文混合输入<br><small>218 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;支持中文英文混合输入&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;混合输入&quot;]
+}</pre></details></td><td class="" style="min-width:230px">这个版本支持中文、英文以及中英文混合输入。<br><small>203 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;这个版本支持中文、英文以及中英文混合输入。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;中文&quot;,&quot;英文&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #14<br>呃今天先把下载断点续传做好模型切换下周再讨论</td><td class="" style="min-width:230px">今天先把下载断点续传做好模型切换下周再讨论<br><small>3298 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;今天先把下载断点续传做好模型切换下周再讨论&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;下载断点续传&quot;, &quot;模型&quot;, &quot;切换&quot;, &quot;讨论&quot;]
+}</pre></details></td><td class="" style="min-width:230px">今天先把下载断点续传做好模型切换，下周再讨论。<br><small>1294 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;今天先把下载断点续传做好模型切换，下周再讨论。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;下载断点续传&quot;,&quot;模型切换&quot;]}</pre></details></td><td class="" style="min-width:230px">今天先把下载断点续传做好模型切换下周再讨论<br><small>312 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;今天先把下载断点续传做好模型切换下周再讨论&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;下载断点续传&quot;, &quot;模型&quot;, &quot;切换&quot;, &quot;讨论&quot;]
+}</pre></details></td><td class="" style="min-width:230px">今天先把下载断点续传做好模型切换，下周再讨论。<br><small>251 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;今天先把下载断点续传做好模型切换，下周再讨论。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;下载断点续传&quot;,&quot;模型切换&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #15<br>如果显存不足就用处理器运行不要自动调用云端</td><td class="" style="min-width:230px">如果显存不足就用处理器运行，不要自动调用云端<br><small>2793 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;如果显存不足就用处理器运行，不要自动调用云端&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;显存&quot;, &quot;处理器&quot;, &quot;云端&quot;]
+}</pre></details></td><td class="" style="min-width:230px">如果显存不足，就使用处理器运行，不要自动调用云端。<br><small>1282 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;如果显存不足，就使用处理器运行，不要自动调用云端。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;显存&quot;,&quot;处理器&quot;,&quot;云端&quot;]}</pre></details></td><td class="" style="min-width:230px">如果显存不足就用处理器运行，不要自动调用云端<br><small>272 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;如果显存不足就用处理器运行，不要自动调用云端&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;显存&quot;, &quot;处理器&quot;, &quot;云端&quot;]
+}</pre></details></td><td class="" style="min-width:230px">如果显存不足，就使用处理器运行，不要自动调用云端。<br><small>232 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;如果显存不足，就使用处理器运行，不要自动调用云端。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;显存&quot;,&quot;处理器&quot;,&quot;云端&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #16<br>请把这段话整理成三点第一确认需求第二执行测试第三记录结果</td><td class="" style="min-width:230px">整理后文本<br><small>2054 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;整理后文本&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;三点&quot;]
+}</pre></details></td><td class="" style="min-width:230px">请整理成三点：第一确认需求，第二执行测试，第三记录结果。<br><small>1465 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;请整理成三点：第一确认需求，第二执行测试，第三记录结果。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;第一确认需求&quot;,&quot;第二执行测试&quot;,&quot;第三记录结果&quot;]}</pre></details></td><td class="" style="min-width:230px">整理后文本<br><small>201 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;整理后文本&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;三点&quot;]
+}</pre></details></td><td class="" style="min-width:230px">请整理成三点：第一确认需求，第二执行测试，第三记录结果。<br><small>278 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;请整理成三点：第一确认需求，第二执行测试，第三记录结果。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;第一确认需求&quot;,&quot;第二执行测试&quot;,&quot;第三记录结果&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #17<br>我想说的是我们可以先试运行一周再决定要不要全面上线</td><td class="" style="min-width:230px">我们可以先试运行一周，再决定是否全面上线<br><small>2472 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我们可以先试运行一周，再决定是否全面上线&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;试运行&quot;, &quot;上线&quot;]
+}</pre></details></td><td class="" style="min-width:230px">我想说的是，我们可以先试运行一周，再决定要不要全面上线。<br><small>1064 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我想说的是，我们可以先试运行一周，再决定要不要全面上线。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;试运行&quot;]}</pre></details></td><td class="" style="min-width:230px">我们可以先试运行一周，再决定是否全面上线<br><small>242 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我们可以先试运行一周，再决定是否全面上线&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;试运行&quot;, &quot;上线&quot;]
+}</pre></details></td><td class="" style="min-width:230px">我想说的是，我们可以先试运行一周再决定要不要全面上线。<br><small>210 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我想说的是，我们可以先试运行一周再决定要不要全面上线。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;试运行&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #18<br>响应时间从一点八秒降到零点九秒这个数字需要复测</td><td class="" style="min-width:230px">响应时间从一点八秒降到零点九秒这个数字需要复测<br><small>2886 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;响应时间从一点八秒降到零点九秒这个数字需要复测&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;响应时间&quot;, &quot;复测&quot;]
+}</pre></details></td><td class="" style="min-width:230px">响应时间从 1.8 秒降到 0.9 秒，这个数字需要复测<br><small>1342 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;响应时间从 1.8 秒降到 0.9 秒，这个数字需要复测&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;响应时间&quot;]}</pre></details></td><td class="" style="min-width:230px">响应时间从一点八秒降到零点九秒这个数字需要复测<br><small>279 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;响应时间从一点八秒降到零点九秒这个数字需要复测&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;响应时间&quot;, &quot;复测&quot;]
+}</pre></details></td><td class="" style="min-width:230px">响应时间从 1.8 秒降到 0.9 秒，这个数字需要复测<br><small>245 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;响应时间从 1.8 秒降到 0.9 秒，这个数字需要复测&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;响应时间&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #19<br>用户说这个按钮点了没有反应但日志里也没有报错请先确认能不能稳定复现</td><td class="" style="min-width:230px">用户说按钮点了没有反应，但日志里也没有报错，先确认能不能稳定复现<br><small>3187 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;用户说按钮点了没有反应，但日志里也没有报错，先确认能不能稳定复现&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;按钮&quot;, &quot;日志&quot;, &quot;复现&quot;]
+}</pre></details></td><td class="" style="min-width:230px">用户说这个按钮点了没有反应但日志里也没有报错，请先确认能不能稳定复现。<br><small>1330 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;用户说这个按钮点了没有反应但日志里也没有报错，请先确认能不能稳定复现。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;按钮&quot;,&quot;日志&quot;]}</pre></details></td><td class="" style="min-width:230px">用户提问按钮无反应，日志无报错，请确认稳定复现<br><small>334 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;用户提问按钮无反应，日志无报错，请确认稳定复现&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;用户提问&quot;, &quot;按钮&quot;, &quot;日志&quot;, &quot;复现&quot;]
+}</pre></details></td><td class="" style="min-width:230px">用户说这个按钮点了没有反应但日志里也没有报错，请先确认能不能稳定复现。<br><small>243 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;用户说这个按钮点了没有反应但日志里也没有报错，请先确认能不能稳定复现。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;按钮&quot;,&quot;日志&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="zh"><td style="min-width:220px">zh #20<br>关于明天的评审请大家提前阅读设计文档重点检查权限和错误处理如果发现阻塞问题就在会议前说明不要等到上线后再处理</td><td class="" style="min-width:230px">关于明天的评审，请大家提前阅读设计文档重点检查权限和错误处理，如果发现阻塞问题就在会议前说明不要等到上线后再处理<br><small>5053 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;关于明天的评审，请大家提前阅读设计文档重点检查权限和错误处理，如果发现阻塞问题就在会议前说明不要等到上线后再处理&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;评审&quot;, &quot;设计文档&quot;, &quot;权限&quot;, &quot;错误处理&quot;, &quot;会议&quot;],
+  &quot;note&quot;: &quot;调整后语义更清晰，符合用户意图，关键信息完整&quot;
+}</pre></details></td><td class="" style="min-width:230px">关于明天的评审，请大家提前阅读设计文档，重点检查权限和错误处理。如果发现阻塞问题，请在会议前说明，不要等到上线后再处理。<br><small>1850 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;关于明天的评审，请大家提前阅读设计文档，重点检查权限和错误处理。如果发现阻塞问题，请在会议前说明，不要等到上线后再处理。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;评审&quot;,&quot;设计文档&quot;,&quot;权限&quot;,&quot;错误处理&quot;]}</pre></details></td><td class="" style="min-width:230px">关于明天的评审，请大家提前阅读设计文档重点检查权限和错误处理，如果发现阻塞问题就在会议前说明不要等到上线后再处理<br><small>549 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;关于明天的评审，请大家提前阅读设计文档重点检查权限和错误处理，如果发现阻塞问题就在会议前说明不要等到上线后再处理&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;评审&quot;, &quot;设计文档&quot;, &quot;权限&quot;, &quot;错误处理&quot;, &quot;会议&quot;],
+  &quot;note&quot;: &quot;调整后语义更清晰，符合用户意图，关键信息完整&quot;
+}</pre></details></td><td class="" style="min-width:230px">关于明天的评审，请大家提前阅读设计文档，重点检查权限和错误处理。如果发现阻塞问题，请在会议前说明，不要等到上线后再处理。<br><small>336 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;关于明天的评审，请大家提前阅读设计文档，重点检查权限和错误处理。如果发现阻塞问题，请在会议前说明，不要等到上线后再处理。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;评审&quot;,&quot;设计文档&quot;,&quot;权限&quot;,&quot;错误处理&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #1<br>um move the meeting to three pm not two pm and remind everyone to bring the API notes</td><td class="bad" style="min-width:230px">移动会议时间到下午三点，不是下午两点，提醒大家带API笔记<br><small>2856 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;移动会议时间到下午三点，不是下午两点，提醒大家带API笔记&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;三 pm&quot;, &quot;corrected&quot;: &quot;三点&quot;}]
+}</pre></details></td><td class="" style="min-width:230px">把会议移到下午三点，提醒所有人带 API 笔记。<br><small>1250 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;把会议移到下午三点，提醒所有人带 API 笔记。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;会议&quot;,&quot;下午三点&quot;,&quot;API 笔记&quot;]}</pre></details></td><td class="bad" style="min-width:230px">移动会议时间到下午三点，不是下午两点，提醒大家带API笔记<br><small>318 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;移动会议时间到下午三点，不是下午两点，提醒大家带API笔记&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;三 pm&quot;, &quot;corrected&quot;: &quot;三点&quot;}]
+}</pre></details></td><td class="" style="min-width:230px">把会议移到下午三点，提醒所有人带 API 笔记。<br><small>241 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;把会议移到下午三点，提醒所有人带 API 笔记。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;会议&quot;,&quot;下午三点&quot;,&quot;API 笔记&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #2<br>the total is one thousand and eight dollars not eighteen hundred please check it</td><td class="" style="min-width:230px">总计是一千八美元，不是一百八百，请检查一下。<br><small>2557 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;总计是一千八美元，不是一百八百，请检查一下。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;总计&quot;, &quot;美元&quot;, &quot;检查&quot;]
+}</pre></details></td><td class="" style="min-width:230px">The total is one thousand and eight dollars. Please check it.<br><small>1079 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;The total is one thousand and eight dollars. Please check it.&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;dollars&quot;,&quot;check&quot;]}</pre></details></td><td class="" style="min-width:230px">总计是一千八美元，不是一百八百，请检查一下。<br><small>292 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;总计是一千八美元，不是一百八百，请检查一下。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;总计&quot;, &quot;美元&quot;, &quot;检查&quot;]
+}</pre></details></td><td class="" style="min-width:230px">The total is one thousand and eight dollars. Please check it.<br><small>221 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;The total is one thousand and eight dollars. Please check it.&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;dollars&quot;,&quot;check&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #3<br>I am not asking to cancel the release I am asking to postpone it until Friday</td><td class="" style="min-width:230px">我不想取消发布，我想把发布延期到星期五<br><small>2524 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我不想取消发布，我想把发布延期到星期五&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;发布&quot;, &quot;星期五&quot;]
+}</pre></details></td><td class="" style="min-width:230px">I am not asking to cancel the release. I am asking to postpone it until Friday.<br><small>1251 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;I am not asking to cancel the release. I am asking to postpone it until Friday.&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;release&quot;,&quot;postpone&quot;,&quot;Friday&quot;]}</pre></details></td><td class="" style="min-width:230px">我不想取消发布，我想把发布延期到星期五<br><small>270 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我不想取消发布，我想把发布延期到星期五&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;发布&quot;, &quot;星期五&quot;]
+}</pre></details></td><td class="" style="min-width:230px">I am not asking to cancel the release. I am asking to postpone it until Friday.<br><small>253 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;I am not asking to cancel the release. I am asking to postpone it until Friday.&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;release&quot;,&quot;postpone&quot;,&quot;Friday&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #4<br>please change the customer name from Jon to John and leave the rest as it is</td><td class="" style="min-width:230px">请将客户名从Jon更改为John<br><small>2170 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;请将客户名从Jon更改为John&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;客户名&quot;]
+}</pre></details></td><td class="" style="min-width:230px">请修改客户姓名从 Jon 改为 John，其余保持不变。<br><small>1110 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;请修改客户姓名从 Jon 改为 John，其余保持不变。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;Jon&quot;,&quot;John&quot;]}</pre></details></td><td class="" style="min-width:230px">请将客户名从Jon更改为John<br><small>230 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;请将客户名从Jon更改为John&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;客户名&quot;]
+}</pre></details></td><td class="" style="min-width:230px">请修改客户姓名从 Jon 改为 John，其余保持不变。<br><small>214 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;请修改客户姓名从 Jon 改为 John，其余保持不变。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;Jon&quot;,&quot;John&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #5<br>we do not support automatic sync yet only manual sync</td><td class="" style="min-width:230px">不支持自动同步，仅手动同步<br><small>2143 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;不支持自动同步，仅手动同步&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;自动同步&quot;]
+}</pre></details></td><td class="" style="min-width:230px">我们目前不支持自动同步，仅支持手动同步。<br><small>969 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我们目前不支持自动同步，仅支持手动同步。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;手动同步&quot;]}</pre></details></td><td class="" style="min-width:230px">不支持自动同步，仅手动同步<br><small>234 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;不支持自动同步，仅手动同步&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;自动同步&quot;]
+}</pre></details></td><td class="" style="min-width:230px">我们目前不支持自动同步，仅支持手动同步。<br><small>199 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我们目前不支持自动同步，仅支持手动同步。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;手动同步&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #6<br>the temperature is minus three point five degrees and the device has not started</td><td class="" style="min-width:230px">温度为-3.5度，设备未启动<br><small>2459 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;温度为-3.5度，设备未启动&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;温度&quot;, &quot;设备&quot;, &quot;未启动&quot;]
+}</pre></details></td><td class="" style="min-width:230px">The temperature is minus three point five degrees and the device has not started<br><small>1096 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;The temperature is minus three point five degrees and the device has not started&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;温度&quot;,&quot;设备&quot;]}</pre></details></td><td class="" style="min-width:230px">温度为-3.5度，设备未启动<br><small>262 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;温度为-3.5度，设备未启动&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;温度&quot;, &quot;设备&quot;, &quot;未启动&quot;]
+}</pre></details></td><td class="" style="min-width:230px">The temperature is minus three point five degrees and the device has not started<br><small>219 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;The temperature is minus three point five degrees and the device has not started&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;温度&quot;,&quot;设备&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #7<br>please schedule the review for September twenty third at nine thirty am</td><td class="" style="min-width:230px">请于9月20日第三天下午9:30安排审核<br><small>2372 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;请于9月20日第三天下午9:30安排审核&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;审核&quot;]
+}</pre></details></td><td class="" style="min-width:230px">请安排九月二十三日上午九点半的评审。<br><small>1083 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;请安排九月二十三日上午九点半的评审。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;九月二十三日&quot;,&quot;上午九点半&quot;]}</pre></details></td><td class="" style="min-width:230px">请于9月20日第三天下午9:30安排审核<br><small>259 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;请于9月20日第三天下午9:30安排审核&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;审核&quot;]
+}</pre></details></td><td class="" style="min-width:230px">请安排九月二十三日上午九点半的评审。<br><small>223 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;请安排九月二十三日上午九点半的评审。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;九月二十三日&quot;,&quot;上午九点半&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #8<br>sorry I said fifteen units but I meant fifty units</td><td class="bad" style="min-width:230px">我说的是 fifty units，而不是 fifteen units。<br><small>2967 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我说的是 fifty units，而不是 fifteen units。&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;fifteen units&quot;, &quot;corrected&quot;: &quot;fifty units&quot;}],
+  &quot;key_terms&quot;: [&quot;单位&quot;, &quot;误差&quot;]
+}</pre></details></td><td class="" style="min-width:230px">I said fifteen units, but I meant fifty units.<br><small>1086 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;I said fifteen units, but I meant fifty units.&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;fifteen&quot;,&quot;fifty&quot;]}</pre></details></td><td class="bad" style="min-width:230px">我说的是 fifty units，而不是 fifteen units。<br><small>355 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我说的是 fifty units，而不是 fifteen units。&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;fifteen units&quot;, &quot;corrected&quot;: &quot;fifty units&quot;}],
+  &quot;key_terms&quot;: [&quot;单位&quot;, &quot;误差&quot;]
+}</pre></details></td><td class="" style="min-width:230px">Sorry, I meant fifty units.<br><small>180 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;Sorry, I meant fifty units.&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;fifty&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #9<br>first save the file then exit the app and finally shut down the computer</td><td class="" style="min-width:230px">保存文件后退出应用，关机电脑<br><small>2362 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;保存文件后退出应用，关机电脑&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;保存&quot;, &quot;退出&quot;, &quot;关机&quot;]
+}</pre></details></td><td class="" style="min-width:230px">先保存文件，然后退出应用，最后关闭电脑。<br><small>1143 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;先保存文件，然后退出应用，最后关闭电脑。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;文件&quot;,&quot;退出应用&quot;,&quot;关闭电脑&quot;]}</pre></details></td><td class="" style="min-width:230px">保存文件后退出应用，关机电脑<br><small>250 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;保存文件后退出应用，关机电脑&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;保存&quot;, &quot;退出&quot;, &quot;关机&quot;]
+}</pre></details></td><td class="" style="min-width:230px">先保存文件，然后退出应用，最后关闭电脑。<br><small>228 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;先保存文件，然后退出应用，最后关闭电脑。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;文件&quot;,&quot;退出应用&quot;,&quot;关闭电脑&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #10<br>this might be related to the cache but we do not have evidence yet</td><td class="" style="min-width:230px">这可能与缓存有关，但目前没有证据。<br><small>2204 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;这可能与缓存有关，但目前没有证据。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;缓存&quot;]
+}</pre></details></td><td class="" style="min-width:230px">这个可能和缓存有关，但目前还没有证据。<br><small>921 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;这个可能和缓存有关，但目前还没有证据。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;缓存&quot;]}</pre></details></td><td class="" style="min-width:230px">这可能与缓存有关，但目前没有证据。<br><small>243 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;这可能与缓存有关，但目前没有证据。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;缓存&quot;]
+}</pre></details></td><td class="" style="min-width:230px">这个可能和缓存有关，但目前还没有证据。<br><small>188 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;这个可能和缓存有关，但目前还没有证据。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;缓存&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #11<br>do not delete the original recording or overwrite the user configuration</td><td class="" style="min-width:230px">不删除原录音或覆盖用户配置<br><small>2318 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;不删除原录音或覆盖用户配置&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;原文完整&quot;]
+}</pre></details></td><td class="" style="min-width:230px">Do not delete the original recording or overwrite the user configuration.<br><small>960 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;Do not delete the original recording or overwrite the user configuration.&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;用户配置&quot;]}</pre></details></td><td class="" style="min-width:230px">不删除原录音或覆盖用户配置<br><small>253 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;不删除原录音或覆盖用户配置&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;原文完整&quot;]
+}</pre></details></td><td class="" style="min-width:230px">Do not delete the original recording or overwrite the user configuration.<br><small>197 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;Do not delete the original recording or overwrite the user configuration.&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;用户配置&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #12<br>I am going to Boston not Austin and I should return before six pm</td><td class="" style="min-width:230px">我要去波士顿，不是奥斯汀，应该在下午六点前回家<br><small>3131 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我要去波士顿，不是奥斯汀，应该在下午六点前回家&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;波士顿&quot;, &quot;奥斯汀&quot;, &quot;下午六点&quot;]
+}</pre></details></td><td class="" style="min-width:230px">I am going to Boston and I should return before six pm<br><small>1076 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;I am going to Boston and I should return before six pm&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;Boston&quot;,&quot;six pm&quot;]}</pre></details></td><td class="" style="min-width:230px">我要去波士顿，不是奥斯汀，应该在下午六点前回家<br><small>345 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我要去波士顿，不是奥斯汀，应该在下午六点前回家&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;波士顿&quot;, &quot;奥斯汀&quot;, &quot;下午六点&quot;]
+}</pre></details></td><td class="" style="min-width:230px">I am going to Boston and I should return before six pm.<br><small>218 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;I am going to Boston and I should return before six pm.&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;Boston&quot;,&quot;six pm&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #13<br>this version supports English Chinese and mixed language input</td><td class="" style="min-width:230px">该版本支持英文中文混合输入<br><small>2352 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;该版本支持英文中文混合输入&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;支持多语言输入&quot;]
+}</pre></details></td><td class="" style="min-width:230px">此版本支持中英文混合输入。<br><small>791 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;此版本支持中英文混合输入。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;混合&quot;]}</pre></details></td><td class="" style="min-width:230px">该版本支持英文中文混合输入<br><small>245 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;该版本支持英文中文混合输入&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;支持多语言输入&quot;]
+}</pre></details></td><td class="" style="min-width:230px">此版本支持中英文混合输入。<br><small>164 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;此版本支持中英文混合输入。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;混合&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #14<br>uh let us finish resumable downloads today and discuss model switching next week</td><td class="" style="min-width:230px">完成可重复下载的重试，下周讨论模型切换<br><small>2632 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;完成可重复下载的重试，下周讨论模型切换&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;可重复&quot;, &quot;下周&quot;]
+}</pre></details></td><td class="" style="min-width:230px">我们本周日完成可恢复下载，下周讨论模型切换。<br><small>1118 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我们本周日完成可恢复下载，下周讨论模型切换。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;可恢复下载&quot;,&quot;下周&quot;]}</pre></details></td><td class="" style="min-width:230px">完成可重复下载的重试，下周讨论模型切换<br><small>301 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;完成可重复下载的重试，下周讨论模型切换&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;可重复&quot;, &quot;下周&quot;]
+}</pre></details></td><td class="" style="min-width:230px">我们本周日完成可恢复下载，下周讨论模型切换。<br><small>214 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我们本周日完成可恢复下载，下周讨论模型切换。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;可恢复下载&quot;,&quot;下周&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #15<br>if GPU memory is insufficient use the CPU and do not call a cloud service</td><td class="" style="min-width:230px">如果GPU内存不足，使用CPU并不请求云服务<br><small>2765 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;如果GPU内存不足，使用CPU并不请求云服务&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;GPU内存&quot;, &quot;CPU&quot;, &quot;云服务&quot;]
+}</pre></details></td><td class="" style="min-width:230px">如果 GPU 内存不足，请使用 CPU 并不要调用云服务。<br><small>1180 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;如果 GPU 内存不足，请使用 CPU 并不要调用云服务。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;GPU&quot;,&quot;CPU&quot;,&quot;Cloud Service&quot;]}</pre></details></td><td class="" style="min-width:230px">如果GPU内存不足，使用CPU并不请求云服务<br><small>304 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;如果GPU内存不足，使用CPU并不请求云服务&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;GPU内存&quot;, &quot;CPU&quot;, &quot;云服务&quot;]
+}</pre></details></td><td class="" style="min-width:230px">如果 GPU 内存不足，请使用 CPU 并不要调用云服务。<br><small>228 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;如果 GPU 内存不足，请使用 CPU 并不要调用云服务。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;GPU&quot;,&quot;CPU&quot;,&quot;Cloud Service&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #16<br>organize this into three steps confirm requirements run tests and record results</td><td class="" style="min-width:230px">整理后的文本<br><small>2207 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;整理后的文本&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;整理&quot;, &quot;测试&quot;, &quot;结果&quot;]
+}</pre></details></td><td class="" style="min-width:230px">将需求整理为三个步骤：确认需求、运行测试、记录结果。<br><small>1230 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;将需求整理为三个步骤：确认需求、运行测试、记录结果。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;需求&quot;,&quot;测试&quot;,&quot;记录&quot;]}</pre></details></td><td class="" style="min-width:230px">整理后文本<br><small>213 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;整理后文本&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;整理&quot;, &quot;文本&quot;]
+}</pre></details></td><td class="" style="min-width:230px">将需求整理为三个步骤：确认需求、运行测试、记录结果。<br><small>242 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;将需求整理为三个步骤：确认需求、运行测试、记录结果。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;需求&quot;,&quot;测试&quot;,&quot;记录&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #17<br>I think we should try it for a week before deciding whether to roll it out</td><td class="" style="min-width:230px">我们应该在一周内尝试后再决定是否推广<br><small>2538 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我们应该在一周内尝试后再决定是否推广&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;一周&quot;]
+}</pre></details></td><td class="" style="min-width:230px">我们建议先试用一周后再决定是否上线。<br><small>901 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我们建议先试用一周后再决定是否上线。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;试用&quot;]}</pre></details></td><td class="" style="min-width:230px">我们应该试试一周后再决定是否推广<br><small>277 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;我们应该试试一周后再决定是否推广&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;试试&quot;, &quot;一周后&quot;]
+}</pre></details></td><td class="" style="min-width:230px">我们建议先试用一周后再决定是否上线。<br><small>175 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;我们建议先试用一周后再决定是否上线。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;试用&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #18<br>latency dropped from one point eight seconds to zero point nine seconds but we need to test again</td><td class="" style="min-width:230px">延迟从8.8秒降到9秒，但我们需要重新测试。<br><small>2784 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;延迟从8.8秒降到9秒，但我们需要重新测试。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;延迟&quot;, &quot;测试&quot;]
+}</pre></details></td><td class="" style="min-width:230px">latency dropped from one point eight seconds to zero point nine seconds but we need to test again<br><small>1248 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;latency dropped from one point eight seconds to zero point nine seconds but we need to test again&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;latency&quot;]}</pre></details></td><td class="" style="min-width:230px">延迟从8.8秒降到9秒，但我们需要重新测试。<br><small>296 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;延迟从8.8秒降到9秒，但我们需要重新测试。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;延迟&quot;, &quot;测试&quot;]
+}</pre></details></td><td class="" style="min-width:230px">latency dropped from one point eight seconds to zero point nine seconds but we need to test again<br><small>281 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;latency dropped from one point eight seconds to zero point nine seconds but we need to test again&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;latency&quot;,&quot;point eight&quot;,&quot;zero point nine&quot;,&quot;test again&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #19<br>the user says the button does nothing and the logs show no errors please check if it is reproducible</td><td class="" style="min-width:230px">用户说按钮无效，日志无错误，请检查是否可复现<br><small>2823 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;用户说按钮无效，日志无错误，请检查是否可复现&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;用户&quot;, &quot;日志&quot;, &quot;可复现&quot;]
+}</pre></details></td><td class="" style="min-width:230px">用户说按钮没有反应，日志显示没有错误，请检查是否可重复。<br><small>1239 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;用户说按钮没有反应，日志显示没有错误，请检查是否可重复。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;按钮&quot;,&quot;日志&quot;]}</pre></details></td><td class="" style="min-width:230px">用户说按钮无效，日志无错误，请检查是否可复现<br><small>319 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;用户说按钮无效，日志无错误，请检查是否可复现&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;用户&quot;, &quot;日志&quot;, &quot;可复现&quot;]
+}</pre></details></td><td class="" style="min-width:230px">用户说按钮没有反应，日志显示没有错误，请检查是否可重复发生。<br><small>240 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;用户说按钮没有反应，日志显示没有错误，请检查是否可重复发生。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;按钮&quot;,&quot;日志&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="en"><td style="min-width:220px">en #20<br>before tomorrow&#x27;s review please read the design document and focus on permissions and error handling if you find a blocking issue flag it before the meeting rather than after deployment</td><td class="" style="min-width:230px">请在明天的会议前阅读设计文档，重点关注权限和错误处理，如果发现阻碍问题，请提前报告，而不在会议后处理。<br><small>3611 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;请在明天的会议前阅读设计文档，重点关注权限和错误处理，如果发现阻碍问题，请提前报告，而不在会议后处理。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;权限&quot;, &quot;错误处理&quot;, &quot;阻碍问题&quot;]
+}</pre></details></td><td class="" style="min-width:230px">在明天评审前，请阅读设计文档，重点关注权限和错误处理。如发现阻塞性问题，请在会议前处理，而非部署后。<br><small>1959 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;在明天评审前，请阅读设计文档，重点关注权限和错误处理。如发现阻塞性问题，请在会议前处理，而非部署后。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;设计文档&quot;,&quot;权限&quot;,&quot;错误处理&quot;,&quot;阻塞性问题&quot;,&quot;会议前处理&quot;]}</pre></details></td><td class="" style="min-width:230px">请在明天的审查前阅读设计文档，重点关注权限和错误处理，如果发现阻碍问题，请提前报告而非后期部署。<br><small>548 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;请在明天的审查前阅读设计文档，重点关注权限和错误处理，如果发现阻碍问题，请提前报告而非后期部署。&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;权限&quot;, &quot;错误处理&quot;],
+  &quot;note&quot;: &quot;修正基于语境要求，保留原意并强化关键术语。&quot;
+}</pre></details></td><td class="" style="min-width:230px">在明天评审前，请阅读设计文档，重点关注权限和错误处理。如发现阻塞性问题，请在会议前处理，而非部署后。<br><small>348 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;在明天评审前，请阅读设计文档，重点关注权限和错误处理。如发现阻塞性问题，请在会议前处理，而非部署后。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;设计文档&quot;,&quot;权限&quot;,&quot;错误处理&quot;,&quot;阻塞性问题&quot;,&quot;会议前处理&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #1<br>嗯明天下午三点开 review 不是两点带上 API 文档</td><td class="bad" style="min-width:230px">明天下午三点开 review 不是两点带上 API 文档<br><small>4993 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;明天下午三点开 review 不是两点带上 API 文档&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;明天下午三点开 review 不是两点带上 API 文档&quot;, &quot;corrected&quot;: &quot;明天下午三点开会，带上API文档&quot;}], &quot;key_terms&quot;: [&quot;开会&quot;, &quot;API文档&quot;],
+  &quot;note&quot;: &quot;修正后语义清晰，保留原意&quot;
+}</pre></details></td><td class="" style="min-width:230px">明天下午三点开 review，不是两点带上 API 文档。<br><small>1121 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;明天下午三点开 review，不是两点带上 API 文档。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;review&quot;,&quot;API 文档&quot;]}</pre></details></td><td class="bad" style="min-width:230px">明天下午三点开 review 不是两点带上 API 文档<br><small>644 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;明天下午三点开 review 不是两点带上 API 文档&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;明天下午三点开 review 不是两点带上 API 文档&quot;, &quot;corrected&quot;: &quot;明天下午三点开会，带上API文档&quot;}], &quot;key_terms&quot;: [&quot;开会&quot;, &quot;API文档&quot;],
+  &quot;note&quot;: &quot;修正后语义清晰，保留原意&quot;
+}</pre></details></td><td class="" style="min-width:230px">明天下午三点开 review，不是两点带上 API 文档。<br><small>223 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;明天下午三点开 review，不是两点带上 API 文档。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;review&quot;,&quot;API 文档&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #2<br>这个 order 的金额是 1008 元不是 1800 元请核对</td><td class="bad" style="min-width:230px">这个订单的金额是1008元不是1800元，请核对<br><small>3708 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;这个订单的金额是1008元不是1800元，请核对&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;这个 order 的金额是 1008 元不是 1800 元请核对&quot;},
+        &quot;corrected&#x27;: &quot; ], &quot;type&quot;: &quot;自我修正&quot;
+}</pre></details></td><td class="" style="min-width:230px">这个订单的金额是 1008 元，不是 1800 元，请核对。<br><small>2798 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;这个订单的金额是 1008 元，不是 1800 元，请核对。&quot;,&quot;corrections&quot;:[{&quot;original&quot;:&quot;金额是 1008 元不是 1800 元&quot;,&quot;corrected&quot;:&quot;金额是 1008 元，不是 1800 元&quot;,&quot;type&quot;:&quot;homophone&quot;}],&quot;key_terms&quot;:[&quot;订单&quot;,&quot;金额&quot;]}</pre></details></td><td class="bad" style="min-width:230px">这个订单的金额是1008元不是1800元，请核对<br><small>521 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;这个订单的金额是1008元不是1800元，请核对&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;这个 order 的金额是 1008 元不是 1800 元请核对&quot;},
+        &quot;corrected&#x27;: &quot; ], &quot;type&quot;: &quot;自我修正&quot;
+}</pre></details></td><td class="" style="min-width:230px">这个订单的金额是 1008 元，不是 1800 元，请核对。<br><small>511 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;这个订单的金额是 1008 元，不是 1800 元，请核对。&quot;,&quot;corrections&quot;:[{&quot;original&quot;:&quot;金额是 1008 元不是 1800 元&quot;,&quot;corrected&quot;:&quot;金额是 1008 元，不是 1800 元&quot;,&quot;type&quot;:&quot;homophone&quot;}],&quot;key_terms&quot;:[&quot;订单&quot;,&quot;金额&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #3<br>不是 cancel release 是 postpone 到 Friday</td><td class="" style="min-width:230px">不是 cancel release 是 postpone 到 Friday<br><small>2247 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;不是 cancel release 是 postpone 到 Friday&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;postpone&quot;, &quot;Friday&quot;]
+}</pre></details></td><td class="" style="min-width:230px">不是取消发布，而是推迟到周五。<br><small>964 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;不是取消发布，而是推迟到周五。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;发布&quot;,&quot;周五&quot;]}</pre></details></td><td class="" style="min-width:230px">不是 cancel release 是 postpone 到 Friday<br><small>260 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;不是 cancel release 是 postpone 到 Friday&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;postpone&quot;, &quot;Friday&quot;]
+}</pre></details></td><td class="" style="min-width:230px">不是取消发布，而是推迟到周五。<br><small>190 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;不是取消发布，而是推迟到周五。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;发布&quot;,&quot;周五&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #4<br>把 user name 从 Jon 改成 John 其他字段不要动</td><td class="" style="min-width:230px">把用户名从 Jon 改成 John<br><small>2129 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;把用户名从 Jon 改成 John&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;用户名&quot;]
+}</pre></details></td><td class="" style="min-width:230px">把 user name 从 Jon 改成 John。<br><small>985 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;把 user name 从 Jon 改成 John。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;用户名称&quot;]}</pre></details></td><td class="" style="min-width:230px">把用户名从 Jon 改成 John<br><small>233 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;把用户名从 Jon 改成 John&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;用户名&quot;]
+}</pre></details></td><td class="" style="min-width:230px">把 user name 从 Jon 改成 John。<br><small>207 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;把 user name 从 Jon 改成 John。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;用户名称&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #5<br>暂时不支持 auto sync 只支持 manual sync</td><td class="" style="min-width:230px">暂时不支持 auto sync 只支持 manual sync<br><small>2291 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;暂时不支持 auto sync 只支持 manual sync&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;auto sync&quot;, &quot;manual sync&quot;]
+}</pre></details></td><td class="" style="min-width:230px">暂时不支持自动同步，仅支持手动同步。<br><small>929 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;暂时不支持自动同步，仅支持手动同步。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;自动同步&quot;]}</pre></details></td><td class="" style="min-width:230px">暂时不支持 auto sync 只支持 manual sync<br><small>276 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;暂时不支持 auto sync 只支持 manual sync&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;auto sync&quot;, &quot;manual sync&quot;]
+}</pre></details></td><td class="" style="min-width:230px">暂时不支持自动同步，只支持手动同步。<br><small>201 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;暂时不支持自动同步，只支持手动同步。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;自动同步&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #6<br>temperature 是负三点五摄氏度 device 还没启动</td><td class="" style="min-width:230px">温度是负三点五摄氏度，设备还没启动<br><small>2535 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;温度是负三点五摄氏度，设备还没启动&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;温度&quot;, &quot;设备&quot;, &quot;启动&quot;]
+}</pre></details></td><td class="" style="min-width:230px">温度是零下三点五摄氏度，设备尚未启动<br><small>970 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;温度是零下三点五摄氏度，设备尚未启动&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;温度&quot;,&quot;设备&quot;]}</pre></details></td><td class="" style="min-width:230px">温度是负三点五摄氏度，设备还没启动<br><small>285 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;温度是负三点五摄氏度，设备还没启动&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;温度&quot;, &quot;设备&quot;, &quot;启动&quot;]
+}</pre></details></td><td class="" style="min-width:230px">温度是零下三点五摄氏度，设备尚未启动<br><small>201 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;温度是零下三点五摄氏度，设备尚未启动&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;温度&quot;,&quot;设备&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #7<br>review 定在 9 月 23 号 morning 九点半</td><td class="" style="min-width:230px">9月23日上午9点半<br><small>2037 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;9月23日上午9点半&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;时间&quot;]
+}</pre></details></td><td class="" style="min-width:230px">定在 9 月 23 号上午九点半。<br><small>1105 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;定在 9 月 23 号上午九点半。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;定在&quot;]}</pre></details></td><td class="" style="min-width:230px">9月23日上午9点半<br><small>221 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;9月23日上午9点半&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;时间&quot;]
+}</pre></details></td><td class="" style="min-width:230px">定在 9 月 23 号上午九点半。<br><small>219 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;定在 9 月 23 号上午九点半。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;定在&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #8<br>sorry inventory 不是 15 是 50</td><td class="bad" style="min-width:230px">sorry, inventory 不是 15 是 50<br><small>3362 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;sorry, inventory 不是 15 是 50&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;sorry inventory&quot;, &quot;corrected&quot;: &quot;sorry, inventory&quot;, &quot;type&quot;: &quot;word correction&quot;}],
+  &quot;key_terms&quot;: [&quot;inventory&quot;, &quot;15&quot;, &quot;50&quot;]
+}</pre></details></td><td class="" style="min-width:230px">库存不是 15 而是 50<br><small>949 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;库存不是 15 而是 50&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;库存&quot;]}</pre></details></td><td class="bad" style="min-width:230px">sorry, inventory 不是 15 是 50<br><small>414 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;sorry, inventory 不是 15 是 50&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;sorry inventory&quot;, &quot;corrected&quot;: &quot;sorry, inventory&quot;, &quot;type&quot;: &quot;word correction&quot;}],
+  &quot;key_terms&quot;: [&quot;inventory&quot;, &quot;15&quot;, &quot;50&quot;]
+}</pre></details></td><td class="" style="min-width:230px">库存不是 15 而是 50<br><small>186 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;库存不是 15 而是 50&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;库存&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #9<br>先 save file 再 exit app 最后 shutdown</td><td class="" style="min-width:230px">保存文件后退出应用，最后关机<br><small>2320 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;保存文件后退出应用，最后关机&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;保存&quot;, &quot;退出&quot;, &quot;关机&quot;]
+}</pre></details></td><td class="" style="min-width:230px">先保存文件，再退出应用，最后关闭系统。<br><small>1091 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;先保存文件，再退出应用，最后关闭系统。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;save&quot;,&quot;exit&quot;,&quot;shutdown&quot;]}</pre></details></td><td class="" style="min-width:230px">保存文件后退出应用，最后关机<br><small>264 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;保存文件后退出应用，最后关机&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;保存&quot;, &quot;退出&quot;, &quot;关机&quot;]
+}</pre></details></td><td class="" style="min-width:230px">先保存文件，再退出应用，最后关闭系统。<br><small>217 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;先保存文件，再退出应用，最后关闭系统。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;save&quot;,&quot;exit&quot;,&quot;shutdown&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #10<br>可能是 cache 的问题但现在没有 evidence</td><td class="" style="min-width:230px">可能是缓存问题，但目前没有证据<br><small>2076 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;可能是缓存问题，但目前没有证据&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;缓存&quot;]
+}</pre></details></td><td class="" style="min-width:230px">可能是缓存的问题，但现在没有证据<br><small>795 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;可能是缓存的问题，但现在没有证据&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;cache&quot;]}</pre></details></td><td class="" style="min-width:230px">可能是缓存问题，但目前没有证据<br><small>231 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;可能是缓存问题，但目前没有证据&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;缓存&quot;]
+}</pre></details></td><td class="" style="min-width:230px">可能是缓存的问题，但现在没有证据。<br><small>175 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;可能是缓存的问题，但现在没有证据。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;cache&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #11<br>不要 delete 原始录音也别 overwrite user config</td><td class="" style="min-width:230px">不要删除原始录音也别覆盖用户配置<br><small>2188 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;不要删除原始录音也别覆盖用户配置&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;用户配置&quot;]
+}</pre></details></td><td class="" style="min-width:230px">不要删除原始录音也不要覆盖用户配置。<br><small>971 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;不要删除原始录音也不要覆盖用户配置。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;用户配置&quot;]}</pre></details></td><td class="" style="min-width:230px">不要删除原始录音也别覆盖用户配置<br><small>243 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;不要删除原始录音也别覆盖用户配置&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;用户配置&quot;]
+}</pre></details></td><td class="" style="min-width:230px">不要删除原始录音也不要覆盖用户配置。<br><small>188 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;不要删除原始录音也不要覆盖用户配置。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;用户配置&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #12<br>明天去 Boston 不是 Austin 六点之前 return</td><td class="" style="min-width:230px">明天去波士顿不是奥斯汀六点之前返回<br><small>2865 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;明天去波士顿不是奥斯汀六点之前返回&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;波士顿&quot;, &quot;奥斯汀&quot;, &quot;六点&quot;, &quot;返回&quot;]
+}</pre></details></td><td class="" style="min-width:230px">明天去波士顿，不是阿灵顿，六点之前返回。<br><small>1206 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;明天去波士顿，不是阿灵顿，六点之前返回。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;波士顿&quot;,&quot;阿灵顿&quot;]}</pre></details></td><td class="" style="min-width:230px">明天去波士顿不是奥斯汀六点之前返回<br><small>340 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;明天去波士顿不是奥斯汀六点之前返回&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;波士顿&quot;, &quot;奥斯汀&quot;, &quot;六点&quot;, &quot;返回&quot;]
+}</pre></details></td><td class="" style="min-width:230px">明天去波士顿，不是阿灵顿，六点之前返回。<br><small>229 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;明天去波士顿，不是阿灵顿，六点之前返回。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;波士顿&quot;,&quot;阿灵顿&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #13<br>这个 version 支持中文 English 和 mixed input</td><td class="" style="min-width:230px">这个版本支持中文英文混合输入<br><small>2613 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;这个版本支持中文英文混合输入&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;版本&quot;, &quot;支持&quot;, &quot;中文英文&quot;]
+}</pre></details></td><td class="" style="min-width:230px">这个版本支持中文、英文和混合输入。<br><small>1113 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;这个版本支持中文、英文和混合输入。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;版本&quot;,&quot;中文&quot;,&quot;英文&quot;,&quot;混合输入&quot;]}</pre></details></td><td class="" style="min-width:230px">这个版本支持中文英文混合输入<br><small>264 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;这个版本支持中文英文混合输入&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;支持中文英文&quot;]
+}</pre></details></td><td class="" style="min-width:230px">这个版本支持中文、英文和混合输入。<br><small>227 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;这个版本支持中文、英文和混合输入。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;版本&quot;,&quot;中文&quot;,&quot;英文&quot;,&quot;混合输入&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #14<br>今天先完成 resume download 下周讨论 model switching</td><td class="" style="min-width:230px">今天先完成 resume download，下周讨论 model switching<br><small>2473 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;今天先完成 resume download，下周讨论 model switching&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;resume&quot;, &quot;model switching&quot;]
+}</pre></details></td><td class="" style="min-width:230px">今天先完成 resume download，下周讨论 model switching。<br><small>1060 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;今天先完成 resume download，下周讨论 model switching。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;resume download&quot;,&quot;model switching&quot;]}</pre></details></td><td class="" style="min-width:230px">今天先完成 resume download，下周讨论 model switching<br><small>260 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;今天先完成 resume download，下周讨论 model switching&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;resume&quot;, &quot;model switching&quot;]
+}</pre></details></td><td class="" style="min-width:230px">今天先完成 resume download，下周讨论 model switching。<br><small>213 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;今天先完成 resume download，下周讨论 model switching。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;resume download&quot;,&quot;model switching&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #15<br>GPU memory 不够就 fallback CPU 不要 call cloud API</td><td class="bad" style="min-width:230px">GPU 内存不足时，应使用 CPU 作为备用，不要调用云 API<br><small>4256 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;GPU 内存不足时，应使用 CPU 作为备用，不要调用云 API&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;GPU memory 不够就 fallback CPU 不要 call cloud API&quot;, &quot;corrected&quot;: &quot;GPU 内存不足时，使用 CPU 作为备用，不要调用云 API&quot;}]
+}</pre></details></td><td class="" style="min-width:230px">GPU 内存不足就降级到使用 CPU，不要调用云 API。<br><small>1186 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;GPU 内存不足就降级到使用 CPU，不要调用云 API。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;GPU&quot;,&quot;CPU&quot;,&quot;API&quot;]}</pre></details></td><td class="bad" style="min-width:230px">GPU 内存不足时，应使用 CPU 作为备用，不要调用云 API<br><small>464 ms · 结构无效，应拒绝</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;GPU 内存不足时，应使用 CPU 作为备用，不要调用云 API&quot;,
+  &quot;corrections&quot;: [{&quot;original&quot;: &quot;GPU memory 不够就 fallback CPU 不要 call cloud API&quot;, &quot;corrected&quot;: &quot;GPU 内存不足时，使用 CPU 作为备用，不要调用云 API&quot;}]
+}</pre></details></td><td class="" style="min-width:230px">GPU 内存不足就降级到使用 CPU，不要调用云 API。<br><small>222 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;GPU 内存不足就降级到使用 CPU，不要调用云 API。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;GPU&quot;,&quot;CPU&quot;,&quot;API&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #16<br>整理成三步 confirm requirements run tests record results</td><td class="" style="min-width:230px">整理成三步确认要求运行测试记录结果<br><small>2565 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;整理成三步确认要求运行测试记录结果&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;三步&quot;, &quot;确认&quot;, &quot;要求&quot;]
+}</pre></details></td><td class="" style="min-width:230px">将要求整理为三步：确认需求、运行测试、记录结果。<br><small>1276 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;将要求整理为三步：确认需求、运行测试、记录结果。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;确认需求&quot;,&quot;运行测试&quot;,&quot;记录结果&quot;]}</pre></details></td><td class="" style="min-width:230px">整理成三步确认要求运行测试记录结果<br><small>267 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;整理成三步确认要求运行测试记录结果&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;三步&quot;, &quot;确认&quot;, &quot;要求&quot;]
+}</pre></details></td><td class="" style="min-width:230px">将要求整理为三步：确认需求、运行测试、记录结果。<br><small>237 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;将要求整理为三步：确认需求、运行测试、记录结果。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;确认需求&quot;,&quot;运行测试&quot;,&quot;记录结果&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #17<br>先 trial 一周再决定要不要 rollout 给所有 users</td><td class="" style="min-width:230px">需要进一步校正<br><small>2105 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;需要进一步校正&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;rollout&quot;, &quot;users&quot;]
+}</pre></details></td><td class="" style="min-width:230px">先试用一周后再决定是否对所有用户进行 rollout。<br><small>1043 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;先试用一周后再决定是否对所有用户进行 rollout。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;trial&quot;,&quot;rollout&quot;,&quot;users&quot;]}</pre></details></td><td class="" style="min-width:230px">需要进一步校正<br><small>209 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;需要进一步校正&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;rollout&quot;, &quot;users&quot;]
+}</pre></details></td><td class="" style="min-width:230px">先试用一周后再决定是否对所有用户进行 rollout。<br><small>215 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;先试用一周后再决定是否对所有用户进行 rollout。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;trial&quot;,&quot;rollout&quot;,&quot;users&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #18<br>latency 从 1.8 秒到 0.9 秒还需要 benchmark</td><td class="" style="min-width:230px">需要进一步测试latency从1.8秒到0.9秒的性能<br><small>2854 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;需要进一步测试latency从1.8秒到0.9秒的性能&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;latency&quot;, &quot;benchmark&quot;]
+}</pre></details></td><td class="" style="min-width:230px">latency 从 1.8 秒到 0.9 秒还需要 benchmark。<br><small>1227 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;latency 从 1.8 秒到 0.9 秒还需要 benchmark。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;benchmark&quot;]}</pre></details></td><td class="" style="min-width:230px">需要进一步测试<br><small>197 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;需要进一步测试&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;latency&quot;]
+}</pre></details></td><td class="" style="min-width:230px">latency 从 1.8 秒到 0.9 秒还需要 benchmark。<br><small>236 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;latency 从 1.8 秒到 0.9 秒还需要 benchmark。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;benchmark&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #19<br>用户说 button 没反应但 logs 没有 error 先确认能否 reproduce</td><td class="" style="min-width:230px">用户说按钮没反应但日志没有错误，先确认能否复现<br><small>2979 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;用户说按钮没反应但日志没有错误，先确认能否复现&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;按钮&quot;, &quot;日志&quot;, &quot;复现&quot;]
+}</pre></details></td><td class="" style="min-width:230px">用户说按钮没反应但日志没有错误，先确认能否复现。<br><small>1302 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;用户说按钮没反应但日志没有错误，先确认能否复现。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;按钮&quot;,&quot;日志&quot;,&quot;复现&quot;]}</pre></details></td><td class="" style="min-width:230px">用户说按钮没反应但日志没有错误，先确认能否复现<br><small>347 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;用户说按钮没反应但日志没有错误，先确认能否复现&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;按钮&quot;, &quot;日志&quot;, &quot;复现&quot;]
+}</pre></details></td><td class="" style="min-width:230px">用户说按钮没反应但日志没有错误，先确认能否复现。<br><small>243 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;用户说按钮没反应但日志没有错误，先确认能否复现。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;按钮&quot;,&quot;日志&quot;,&quot;复现&quot;]}</pre></details></td><td>未测</td></tr><tr data-language="mixed"><td style="min-width:220px">mixed #20<br>明天 review 前先读 design doc 重点看 permissions 和 error handling 有 blocking issue 就提前说明不要 deployment 之后再处理</td><td class="" style="min-width:230px">明天 review 前先读 design doc 重点看 permissions 和 error handling 有 blocking issue 就提前说明不要 deployment 之后再处理<br><small>3600 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;明天 review 前先读 design doc 重点看 permissions 和 error handling 有 blocking issue 就提前说明不要 deployment 之后再处理&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;permissions&quot;, &quot;error handling&quot;, &quot;blocking issue&quot;, &quot;deployment&quot;]
+}</pre></details></td><td class="" style="min-width:230px">明天在 review 前先阅读设计文档，重点查看 permissions 和 error handling，如果有 blocking issue 则提前说明不要部署，之后再处理。<br><small>1794 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;明天在 review 前先阅读设计文档，重点查看 permissions 和 error handling，如果有 blocking issue 则提前说明不要部署，之后再处理。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;design doc&quot;,&quot;permissions&quot;,&quot;error handling&quot;,&quot;deployment&quot;]}</pre></details></td><td class="" style="min-width:230px">明天 review 前先读 design doc 重点看 permissions 和 error handling 有 blocking issue 就提前说明不要 deployment 之后再处理<br><small>393 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{
+  &quot;polished&quot;: &quot;明天 review 前先读 design doc 重点看 permissions 和 error handling 有 blocking issue 就提前说明不要 deployment 之后再处理&quot;,
+  &quot;corrections&quot;: [],
+  &quot;key_terms&quot;: [&quot;permissions&quot;, &quot;error handling&quot;, &quot;blocking issue&quot;, &quot;deployment&quot;]
+}</pre></details></td><td class="" style="min-width:230px">明天在 review 前先阅读设计文档，重点查看 permissions 和 error handling，如果有 blocking issue 则提前说明不要部署，之后再处理。<br><small>315 ms · 结构有效</small><details><summary>原始 JSON</summary><pre>{&quot;polished&quot;:&quot;明天在 review 前先阅读设计文档，重点查看 permissions 和 error handling，如果有 blocking issue 则提前说明不要部署，之后再处理。&quot;,&quot;corrections&quot;:[],&quot;key_terms&quot;:[&quot;design doc&quot;,&quot;permissions&quot;,&quot;error handling&quot;,&quot;deployment&quot;]}</pre></details></td><td>未测</td></tr></tbody></table></div><script>function filterRows(lang){document.querySelectorAll("tr[data-language]").forEach(row=>row.hidden=lang!=="all"&&row.dataset.language!==lang)}</script></html>

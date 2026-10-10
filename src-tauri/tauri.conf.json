@@ -75,6 +75,7 @@
       }
     },
     "resources": {
+      "resources/local-llm/": "resources/local-llm/",
       "resources/qwen3_asr_server.py": "resources/qwen3_asr_server.py",
       "resources/firered_vad.py": "resources/firered_vad.py",
       "resources/fireredvad_vad.onnx": "resources/fireredvad_vad.onnx",

@@ -1169,6 +1169,10 @@ pub async fn resolve_api_key_for_provider_with_auth_mode(
     xai_auth_mode_override: Option<XaiAuthMode>,
 ) -> Result<String, String> {
     let manual_api_key = manual_api_key.trim();
+    // 只作兼容现有调用入口的本地标记，不读取云端认证；真正令牌由本地进程管理。
+    if provider == "local" {
+        return Ok("local-managed".into());
+    }
 
     if provider == XAI_PROVIDER {
         let stored_mode = state.llm_provider_config().xai_auth_mode;

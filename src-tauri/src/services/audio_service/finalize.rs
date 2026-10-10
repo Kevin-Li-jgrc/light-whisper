@@ -515,6 +515,7 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             }
         }
     } else if mode == RecordingMode::Assistant {
+        let local_assistant = state.llm_provider_config().resolve_assistant_provider() == "local";
         let original_request = text;
         let assistant_started = Instant::now();
         let requested_polish_screen_context = app_profile
@@ -539,7 +540,11 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
                 &app_handle,
                 session_id,
                 ai_polish_service::PolishOverrides {
-                    ai_polish_enabled: app_profile.ai_polish_enabled,
+                    ai_polish_enabled: if local_assistant {
+                        Some(false)
+                    } else {
+                        app_profile.ai_polish_enabled
+                    },
                     translation_target: Some(None),
                     custom_prompt: app_profile.custom_prompt.clone(),
                     screen_context_enabled: Some(requested_polish_screen_context),
@@ -692,6 +697,11 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
             );
         }
         let polish_start = Instant::now();
+        let local_text = state.active_llm_provider() == "local";
+        let translating = translation_override
+            .clone()
+            .unwrap_or_else(|| state.with_profile(|p| p.translation_target.clone()))
+            .is_some_and(|target| !target.trim().is_empty());
         let polish_result = ai_polish_service::polish_text_with_overrides_detailed(
             state.inner(),
             &text,
@@ -709,12 +719,42 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         )
         .await;
         let elapsed_polish_ms = elapsed_ms(polish_start);
+        let polish_failed = polish_result.is_err();
         let (text, history_provider, history_model, polish_elapsed_ms) = match polish_result {
             Ok(outcome) => {
                 let timing = outcome.executed.then_some(elapsed_polish_ms);
                 (outcome.text, outcome.provider, outcome.model, timing)
             }
             Err(error) => {
+                if local_text && (translating || error == "本地请求已取消") {
+                    history
+                        .persist(
+                            &app_handle,
+                            "error",
+                            &original,
+                            &original,
+                            None,
+                            lang_ref,
+                            Some("local"),
+                            None,
+                            None,
+                            Some(&error),
+                        )
+                        .await;
+                    emit_error(
+                        &app_handle,
+                        session_id,
+                        subtitle_show_gen,
+                        mode,
+                        RecordingOutcomeKind::ProcessingError,
+                        &format!("本地文字处理未完成: {error}"),
+                    );
+                    flush_pending_paste(&app_handle);
+                    return;
+                }
+                if local_text {
+                    let _ = app_handle.emit("local-llm-warning", serde_json::json!({"sessionId": session_id, "message": format!("本地润色失败，已保留识别原文: {error}")}));
+                }
                 log::warn!("AI 润色失败，使用原文: {}", error);
                 (original.clone(), None, None, None)
             }
@@ -754,12 +794,14 @@ pub async fn finalize_recording(app_handle: tauri::AppHandle, session: Recording
         );
 
         if !text.is_empty() {
-            crate::services::hotword_learning::queue_record(
-                &app_handle,
-                session_id,
-                learning_raw.unwrap_or_else(|| original.clone()),
-                text.clone(),
-            );
+            if !polish_failed {
+                crate::services::hotword_learning::queue_record(
+                    &app_handle,
+                    session_id,
+                    learning_raw.unwrap_or_else(|| original.clone()),
+                    text.clone(),
+                );
+            }
             let app = app_handle.clone();
             let processing = state.recording.reinsert.processing();
             tokio::spawn(async move {

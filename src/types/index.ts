@@ -186,6 +186,8 @@ export type XaiAuthMode = "api_key" | "oauth";
 
 // LLM 后端配置
 export interface LlmProviderConfig {
+  local?: { model: string; device: "auto" | "cpu" };
+  local_cloud_backup?: LlmProviderConfig;
   active: string;
   custom_base_url?: string;
   custom_model?: string;

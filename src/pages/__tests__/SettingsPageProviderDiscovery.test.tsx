@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AiModelInfo, UserProfile } from "@/types";
+vi.mock("@/i18n/localAi", () => ({ loadLocalAiTranslations: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("@/api/localLlm", () => ({ localLlm: { models: vi.fn().mockResolvedValue([]), status: vi.fn().mockResolvedValue({ phase: "unloaded" }) } }));
 
 const tauriMock = vi.hoisted(() => ({
   addCustomProvider: vi.fn(),

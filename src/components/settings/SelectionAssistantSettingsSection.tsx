@@ -375,7 +375,7 @@ export default function SelectionAssistantSettingsSection({
             {provider === "openai" ? openaiControls : null}
             {shouldShowGrokBuildAuth(provider) ? grokAuthToggle : null}
 
-            <div className="settings-column" style={{ gap: 4 }}>
+            {provider !== "local" && <div className="settings-column" style={{ gap: 4 }}>
               <span className="settings-option-desc">{currentProvider.label} API Key</span>
               <SecretInput
                 value={apiKey}
@@ -388,7 +388,7 @@ export default function SelectionAssistantSettingsSection({
                 ariaLabelShow={t("settings.showApiKey")}
                 ariaLabelHide={t("settings.hideApiKey")}
               />
-            </div>
+            </div>}
 
             {shouldShowGrokBuildAuth(provider) ? grokOauthBlock : null}
 

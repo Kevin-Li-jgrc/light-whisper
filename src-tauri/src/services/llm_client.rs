@@ -31,6 +31,25 @@ pub(crate) use transport::{dynamic_timeout, is_retryable_overload_error, request
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn local_provider_never_resolves_to_cloud_or_emits_tools() {
+        let config = crate::state::user_profile::LlmProviderConfig {
+            active: "local".into(),
+            ..Default::default()
+        };
+        let endpoint = crate::services::llm_provider::endpoint_for_config(&config);
+        assert_eq!(endpoint.provider, "local");
+        let body = super::build_llm_body(
+            &endpoint,
+            "校正",
+            &super::LlmUserInput::from("hello"),
+            super::LlmRequestOptions {
+                web_search: true,
+                ..Default::default()
+            },
+        );
+        assert!(body.get("tools").is_none());
+    }
     use super::{
         adapt_body_for_backend, apply_responses_done_text, build_llm_body,
         build_stream_error_payload, build_stream_event_payload, collect_url_citation_payloads,

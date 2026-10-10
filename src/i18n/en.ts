@@ -374,6 +374,7 @@ const en: TranslationSchema = {
     reasoningFallback: " The saved reasoning mode will not take effect; the model's default behavior will be used.",
   },
   settings: {
+    localModelDesc: "Uses the selected local text model. No API key required.",
     title: "Settings",
     appearance: "Appearance",
     themeLight: "Light",

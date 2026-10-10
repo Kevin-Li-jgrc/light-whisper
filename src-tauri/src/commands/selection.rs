@@ -122,7 +122,7 @@ fn validate_provider(state: &AppState, provider: &str) -> Result<String, String>
     let provider = provider.trim();
     let valid = matches!(
         provider,
-        "cerebras" | "openai" | "deepseek" | "siliconflow" | "custom"
+        "local" | "cerebras" | "openai" | "deepseek" | "siliconflow" | "custom"
     ) || state.with_profile(|profile| {
         profile
             .llm_provider
@@ -155,6 +155,9 @@ pub async fn get_selection_api_key(
     provider: String,
 ) -> Result<String, String> {
     let provider = validate_provider(state.inner(), &provider)?;
+    if provider == "local" {
+        return Ok(String::new());
+    }
     Ok(llm_provider::load_api_key_for_provider(
         &app_handle,
         &provider,
@@ -386,6 +389,18 @@ async fn send_selection_with_transport_fallback(
 ) -> Result<String, String> {
     let [streaming, fallback] =
         selection_transport_plan(reasoning_mode, openai_fast_mode, request_id);
+    if endpoint.provider == "local" {
+        return send_selection_request(
+            state,
+            endpoint,
+            api_key,
+            app_handle,
+            input,
+            user_content_len,
+            streaming,
+        )
+        .await;
+    }
     let stream_error = match send_selection_request(
         state,
         endpoint,
@@ -470,7 +485,9 @@ async fn run_llm_action(
         )
     };
 
-    let images = if state.with_profile(|profile| profile.selection_assistant.auto_screenshot) {
+    let images = if endpoint.provider != "local"
+        && state.with_profile(|profile| profile.selection_assistant.auto_screenshot)
+    {
         selection_service::current_selection_screenshots(selected_text)
             .into_iter()
             .map(|image| LlmImageInput {

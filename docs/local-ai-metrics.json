@@ -1,0 +1,38 @@
+[
+  {
+    "modelDevice": "LFM2.5-1.2B-Instruct / CPU",
+    "samples": 60,
+    "schemaValid": 52,
+    "generationMedianMs": 2635,
+    "generationP95Ms": 4501,
+    "firstTokenMedianMs": 773,
+    "firstTokenP95Ms": 989
+  },
+  {
+    "modelDevice": "Qwen3.5-0.8B / CPU",
+    "samples": 60,
+    "schemaValid": 60,
+    "generationMedianMs": 1098,
+    "generationP95Ms": 1850,
+    "firstTokenMedianMs": 226,
+    "firstTokenP95Ms": 295
+  },
+  {
+    "modelDevice": "LFM2.5-1.2B-Instruct / CUDA",
+    "samples": 60,
+    "schemaValid": 53,
+    "generationMedianMs": 268,
+    "generationP95Ms": 521,
+    "firstTokenMedianMs": 35,
+    "firstTokenP95Ms": 44
+  },
+  {
+    "modelDevice": "Qwen3.5-0.8B / CUDA",
+    "samples": 60,
+    "schemaValid": 60,
+    "generationMedianMs": 219,
+    "generationP95Ms": 336,
+    "firstTokenMedianMs": 60,
+    "firstTokenP95Ms": 63
+  }
+]

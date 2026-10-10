@@ -393,6 +393,19 @@ async fn send_llm_request_with_transport_fallback(
     let _ = state.take_ai_polish_stream_started(session_id);
     let [stage1, _, _, _] = ai_polish_transport_plan(reasoning_mode, session_id, false);
     let stage1 = apply_fast(stage1);
+    if endpoint.provider == "local" {
+        return send_ai_polish_request(
+            state,
+            endpoint,
+            api_key,
+            system_prompt,
+            user_input,
+            user_content_len,
+            Some(app_handle),
+            stage1,
+        )
+        .await;
+    }
     match send_ai_polish_request(
         state,
         endpoint,
@@ -832,6 +845,9 @@ pub async fn polish_text_with_overrides_detailed(
         raw_content.chars().count()
     );
 
+    if endpoint.provider == "local" {
+        crate::services::local_llm::validate_polish_schema(raw_content)?;
+    }
     let (polished, corrections, key_terms) = match parse_structured_response(raw_content) {
         Some(resp) => {
             // 只学习真正的 ASR 识别错误（homophone/term/pronoun），过滤掉风格改写
@@ -851,6 +867,9 @@ pub async fn polish_text_with_overrides_detailed(
             (resp.polished, Some(learnable), Some(resp.key_terms))
         }
         None => {
+            if endpoint.provider == "local" {
+                return Err("本地润色输出结构无效，未应用结果或学习纠错".into());
+            }
             log::warn!(
                 "AI 润色 JSON 解析失败，回退到字符 diff (响应{}字符)",
                 raw_content.chars().count()
@@ -1007,7 +1026,16 @@ pub async fn edit_text(
 
     let elapsed_ms = start.elapsed().as_millis();
 
-    let result = extract_edit_result(raw_content).unwrap_or_else(|| raw_content.to_string());
+    let result = match extract_edit_result(raw_content) {
+        Some(result) if endpoint.provider == "local" && result.trim().is_empty() => {
+            return Err("本地编辑返回空正文，未应用结果".into())
+        }
+        Some(result) => result,
+        None if endpoint.provider == "local" => {
+            return Err("本地编辑输出结构无效，未应用结果".into())
+        }
+        None => raw_content.to_string(),
+    };
 
     log::info!(
         "编辑选中文本完成 ({}ms): 指令{}字符，结果{}字符",
@@ -1074,8 +1102,9 @@ async fn build_polish_user_input(
     screen_context_foreground: Option<&ForegroundApp>,
     app_context_override: Option<&str>,
 ) -> PreparedPolishUserInput {
-    let screen_context_enabled = screen_context_override
-        .unwrap_or_else(|| state.with_profile(UserProfile::screen_context_enabled));
+    let screen_context_enabled = endpoint.provider != "local"
+        && screen_context_override
+            .unwrap_or_else(|| state.with_profile(UserProfile::screen_context_enabled));
     let cache_key = llm_provider::image_support_cache_key(endpoint);
     let cached_image_support = state.assistant_image_support(&cache_key);
     let probed_image_support = if screen_context_enabled && cached_image_support.is_none() {

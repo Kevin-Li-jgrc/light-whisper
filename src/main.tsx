@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useState, useRef, useCallback, useEffect } from "react";
 import ReactDOM from "react-dom/client";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { RecordingProvider } from "./contexts/RecordingContext";
 import { prefersReducedMotion } from "./lib/motion";
@@ -51,6 +52,10 @@ class ErrorBoundary extends React.Component<
 }
 
 export function App() {
+  useEffect(() => {
+    const listener = listen<{ message: string }>("local-llm-warning", (e) => toast.error(e.payload.message));
+    return () => { void listener.then((off) => off()); };
+  }, []);
   const [view, setView] = useState<View>("main");
   const [animClass, setAnimClass] = useState("");
   const isTransitioning = useRef(false);

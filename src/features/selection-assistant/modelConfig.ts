@@ -14,7 +14,7 @@ export function resolveSelectionModelConfig(config: LlmProviderConfig) {
       || config.custom_providers?.some((candidate) => candidate.id === provider)),
   );
 
-  if (!config.selection_use_separate_model || !providerExists || !model) {
+  if (!config.selection_use_separate_model || !providerExists || (!model && provider !== "local")) {
     return {
       provider: config.active,
       model: undefined,
@@ -25,7 +25,7 @@ export function resolveSelectionModelConfig(config: LlmProviderConfig) {
 
   return {
     provider: provider!,
-    model,
+    model: provider === "local" ? "local-selected" : model,
     reasoningMode: config.selection_reasoning_mode ?? polishReasoning,
     followsPolish: false,
   };

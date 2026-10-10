@@ -487,6 +487,16 @@ pub async fn set_models_dir(
     path: Option<String>,
     migrate: bool,
 ) -> Result<ModelsDirUpdateResult, AppError> {
+    let _local_gate = crate::services::local_llm::gate().lock().await;
+    if crate::services::local_llm::is_downloading() {
+        return Err(AppError::Other(
+            "本地文字模型正在下载，请先完成或取消下载".into(),
+        ));
+    }
+    let _local_directory = crate::services::local_llm::directory_gate()
+        .try_write()
+        .map_err(|_| AppError::Other("本地模型正在下载或迁移，请稍后重试".into()))?;
+    crate::services::local_llm::stop_locked(&app_handle).await;
     let lifecycle_guard = state.engine.funasr_lifecycle_op.lock().await;
     if state.engine.download_task.lock().await.is_some() {
         return Err(AppError::Other(
@@ -648,7 +658,11 @@ fn migrate_model_dirs(
     let entries: Vec<_> = std::fs::read_dir(src)
         .map_err(|e| format!("读取源目录失败: {}", e))?
         .filter_map(Result::ok)
-        .filter(|e| e.file_name().to_string_lossy().starts_with("models--") && e.path().is_dir())
+        .filter(|e| {
+            (e.file_name().to_string_lossy().starts_with("models--")
+                || e.file_name() == "light-whisper-local-llm")
+                && e.path().is_dir()
+        })
         .collect();
 
     if entries.is_empty() {

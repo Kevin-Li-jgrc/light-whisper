@@ -189,6 +189,7 @@ pub fn run() {
             }
 
             spawn_funasr_startup(app_handle.clone());
+            services::local_llm::initialize(app_handle.clone());
             spawn_subtitle_prewarm(app_handle.clone());
             spawn_profile_maintenance(app_handle.clone());
             if let Err(error) = services::selection_service::create_selection_window(&app_handle) {
@@ -217,6 +218,16 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::local_llm::local_llm_models,
+            commands::local_llm::local_llm_status,
+            commands::local_llm::local_llm_download,
+            commands::local_llm::local_llm_cancel_download,
+            commands::local_llm::local_llm_delete,
+            commands::local_llm::local_llm_load,
+            commands::local_llm::local_llm_release,
+            commands::local_llm::local_llm_cancel,
+            commands::local_llm::local_llm_configure,
+            commands::local_llm::local_llm_switch_all,
             commands::funasr::start_funasr,
             commands::funasr::transcribe_audio,
             commands::funasr::check_funasr_status,
@@ -345,8 +356,13 @@ pub fn run() {
             commands::history::export_transcription_history,
             commands::history::reprocess_transcription_history,
         ])
-        .run(tauri::generate_context!())
-        .expect("启动轻语 Whisper 时发生错误");
+        .build(tauri::generate_context!())
+        .expect("启动轻语 Whisper 时发生错误")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                tauri::async_runtime::block_on(services::local_llm::shutdown(app));
+            }
+        });
 }
 
 fn mark_setup_once() -> bool {
@@ -539,6 +555,7 @@ fn hide_main_window(app: &tauri::AppHandle) {
 }
 
 fn stop_funasr_on_exit(app: &tauri::AppHandle) {
+    tauri::async_runtime::block_on(services::local_llm::shutdown(app));
     let state = app.state::<AppState>();
     services::audio_service::stop_microphone_level_monitor(state.inner());
 

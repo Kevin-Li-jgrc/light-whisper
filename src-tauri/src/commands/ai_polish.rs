@@ -62,6 +62,9 @@ pub async fn get_ai_polish_api_key(
     state: tauri::State<'_, AppState>,
     provider: String,
 ) -> Result<String, String> {
+    if provider == "local" {
+        return Ok(String::new());
+    }
     let entry = llm_provider::provider_key_entry(&provider)?;
     llm_provider::read_provider_api_key(state.inner(), &provider, &entry)
 }
@@ -387,6 +390,15 @@ pub async fn list_ai_models(
     openai_auth_mode: Option<OpenaiAuthMode>,
     xai_auth_mode: Option<XaiAuthMode>,
 ) -> Result<AiModelListPayload, String> {
+    if provider == "local" {
+        return Ok(AiModelListPayload {
+            models: vec![AiModelInfo {
+                id: "local-selected".into(),
+                owned_by: Some("Local".into()),
+            }],
+            source_url: "local://managed".into(),
+        });
+    }
     let api_key = codex_oauth_service::resolve_api_key_for_provider_with_auth_mode(
         &app_handle,
         state.inner(),
@@ -783,6 +795,9 @@ pub async fn get_assistant_api_key(
     state: tauri::State<'_, AppState>,
     provider: String,
 ) -> Result<String, String> {
+    if provider == "local" {
+        return Ok(String::new());
+    }
     let entry = llm_provider::provider_key_entry(&provider)?;
     llm_provider::read_provider_api_key(state.inner(), &provider, &entry)
 }

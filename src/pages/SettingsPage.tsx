@@ -65,6 +65,7 @@ import SystemSettingsSections from "@/components/settings/SystemSettingsSections
 import SelectionAssistantSettingsSection from "@/components/settings/SelectionAssistantSettingsSection";
 import AppProfileRulesSettingsSection from "@/components/settings/AppProfileRulesSettingsSection";
 import HistorySettingsSection from "@/components/settings/HistorySettingsSection";
+import LocalModelsSettingsSection from "@/components/settings/LocalModelsSettingsSection";
 import PolishStructureControl from "@/components/settings/PolishStructureControl";
 import { PADDING, INPUT_METHOD_KEY, DEFAULT_HOTKEY, AI_POLISH_ENABLED_KEY, SOUND_ENABLED_KEY, RECORDING_MODE_KEY } from "@/lib/constants";
 import { formatAsrEngineDescription, getAsrEngineCapability } from "@/lib/asrEngineCapabilities";
@@ -2601,6 +2602,7 @@ export default function SettingsPage({
           >
             <div className="settings-section-header">
               <Sparkles size={15} className="icon-accent" />
+              <LocalModelsSettingsSection profile={profile} onSaved={refreshProfile} speechEngine={engineLabel(engine)} speechLocal={getAsrEngineCapability(engine)?.execution === "local"} />
               <h2 className="settings-section-title">{t("settings.aiPolish")}</h2>
             </div>
             <div className="settings-column" style={{ gap: 10 }}>
@@ -2714,7 +2716,7 @@ export default function SettingsPage({
                       : undefined}
                     grokLoggedIn={grokBuildOauthStatus.loggedIn}
                     providerOptions={allProviderOptions.filter(
-                      (option) => option.key !== "deepseek",
+                      (option) => option.key !== "deepseek" && option.key !== "local",
                     )}
                     onProviderChange={handleScreenVisionProviderChange}
                     onApiKeyChange={(value) => {
@@ -2914,7 +2916,7 @@ export default function SettingsPage({
                 {llmProvider === "openai" && renderOpenaiAuthModeToggle()}
                 {shouldShowGrokBuildAuth(llmProvider) && renderXaiAuthModeToggle()}
 
-                <div className="settings-column" style={{ gap: 6 }}>
+                {llmProvider !== "local" && <div className="settings-column" style={{ gap: 6 }}>
                   <span className="settings-option-desc">{t("settings.apiKey")}</span>
                   <SecretInput
                     disabled={polishKey.loading}
@@ -2927,7 +2929,7 @@ export default function SettingsPage({
                     }}
                   />
                   <button type="button" className="btn-ghost btn-ghost-xs" disabled={polishKey.loading} onClick={() => void polishKey.remove()}>{t("settings.deleteSavedApiKey")}</button>
-                </div>
+                </div>}
 
                 {renderOpenaiCodexOauthBlock("polish")}
                 {shouldShowGrokBuildAuth(llmProvider) && renderGrokBuildOauthBlock("polish")}
@@ -3278,7 +3280,7 @@ export default function SettingsPage({
                   </div>
 
                   {/* 助手独立 API Key（仅当 provider 与润色不同时显示） */}
-                  {assistantProviderDiffers ? (
+                  {assistantProviderDiffers && effectiveAssistantProvider !== "local" ? (
                     <>
                       {effectiveAssistantProvider === "openai" && renderOpenaiAuthModeToggle()}
                       {shouldShowGrokBuildAuth(effectiveAssistantProvider) && renderXaiAuthModeToggle()}

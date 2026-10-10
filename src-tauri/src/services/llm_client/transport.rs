@@ -91,6 +91,9 @@ pub async fn send_llm_request(
     app_handle: Option<&tauri::AppHandle>,
     options: LlmRequestOptions<'_>,
 ) -> Result<String, String> {
+    if endpoint.provider == "local" {
+        return crate::services::local_llm::send(body, app_handle, options).await;
+    }
     let deepseek_responses_endpoint = uses_deepseek_v4_responses(endpoint).then(|| LlmEndpoint {
         provider: endpoint.provider.clone(),
         api_url: responses_api_url(&endpoint.api_url),

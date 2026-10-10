@@ -810,7 +810,10 @@ async fn generate_content_inner(
 
     let config = state.llm_provider_config();
     let endpoint = llm_provider::assistant_endpoint_for_config(&config);
-    let ws = state.with_profile(|p| p.web_search.clone());
+    let mut ws = state.with_profile(|p| p.web_search.clone());
+    if endpoint.provider == "local" {
+        ws.enabled = false;
+    }
     let is_codex_chatgpt_bearer =
         codex_oauth_service::decode_chatgpt_bearer_token(&api_key).is_some();
     let effective_ws =
@@ -929,9 +932,10 @@ async fn generate_content_inner(
         );
     }
 
-    let screen_context_enabled = request_context
-        .screen_context_enabled
-        .unwrap_or_else(|| state.with_profile(UserProfile::screen_context_enabled));
+    let screen_context_enabled = endpoint.provider != "local"
+        && request_context
+            .screen_context_enabled
+            .unwrap_or_else(|| state.with_profile(UserProfile::screen_context_enabled));
     let reusable_screen_description =
         request_context.reusable_screen_context_description(screen_context_enabled);
     let needs_screen_capture = screen_context_enabled && reusable_screen_description.is_none();

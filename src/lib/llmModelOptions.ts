@@ -58,6 +58,7 @@ export const llmProviderOptions: ReadonlyArray<LlmProviderOption> = [
     defaultModel: "glm-5.2",
     models: ["glm-5.2", "glm-5.3-flash", "deepseek-v4.1-flash", "kimi-k3", "gpt-5.6-luna", "minimax-m2.7"],
   },
+  { key: "local", label: "Local · 本地模型", descKey: "settings.localModelDesc", baseUrl: "", defaultModel: "local-selected", models: ["local-selected"] },
 ];
 
 export const reasoningModeOptions: ReadonlyArray<{
@@ -88,6 +89,7 @@ export function resolveLlmBaseUrl(key: string, customBaseUrl?: string | null): s
 }
 
 export function resolveLlmModel(key: string, customModel?: string | null): string {
+  if (key === "local") return "local-selected";
   const preset = findLlmPreset(key);
   return customModel?.trim() || preset.defaultModel;
 }

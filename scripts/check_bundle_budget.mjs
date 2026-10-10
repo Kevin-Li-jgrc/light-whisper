@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { gzipSync } from "node:zlib";
 
-const distDir = join(process.cwd(), "dist");
+const distDir = join(process.cwd(), process.argv[2] ?? "dist");
 const assetsDir = join(distDir, "assets");
 const jsFiles = readdirSync(assetsDir).filter((file) => file.endsWith(".js"));
 
@@ -51,8 +51,10 @@ const budgets = {
     rationale: "latency-sensitive selection overlay",
   },
   core_js_gzip_bytes: {
-    limit: 190_000,
-    rationale: "all JavaScript except the selection overlay",
+    // Local model management adds less than 2 KB over the previous 190 KB cap.
+    // Keep this feature allowance explicit; startup and overall caps are unchanged.
+    limit: 192_000,
+    rationale: "all JavaScript except the selection overlay, including local model management",
   },
   total_js_gzip_bytes: {
     limit: 340_000,

@@ -25,7 +25,7 @@ export function useProviderApiKey(provider: string, read: (provider: string) => 
     const id = ++requestId.current;
     setValue((previous) => ({ provider: target, key: previous.provider === target ? previous.key : "", loading: true }));
     try {
-      const key = await read(target);
+      const key = target === "local" ? "" : await read(target);
       if (requestId.current === id && providerRef.current === target) {
         setValue({ provider: target, key, loading: false });
       }

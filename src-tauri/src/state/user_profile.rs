@@ -514,6 +514,10 @@ pub struct CustomProvider {
 /// LLM 后端配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmProviderConfig {
+    #[serde(default)]
+    pub local: crate::services::local_llm::LocalLlmConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_cloud_backup: Option<Box<LlmProviderConfig>>,
     /// 当前使用的后端: 预置 key 或 custom provider id
     pub active: String,
     /// 旧字段，迁移兼容
@@ -588,6 +592,8 @@ pub struct LlmProviderConfig {
 impl Default for LlmProviderConfig {
     fn default() -> Self {
         Self {
+            local: Default::default(),
+            local_cloud_backup: None,
             active: "cerebras".to_string(),
             custom_base_url: None,
             custom_model: None,
@@ -619,7 +625,14 @@ impl LlmProviderConfig {
     fn is_builtin_provider(provider: &str) -> bool {
         matches!(
             provider,
-            "cerebras" | "openai" | "xai" | "deepseek" | "siliconflow" | "opencode-go" | "custom"
+            "local"
+                | "cerebras"
+                | "openai"
+                | "xai"
+                | "deepseek"
+                | "siliconflow"
+                | "opencode-go"
+                | "custom"
         )
     }
 
@@ -731,7 +744,7 @@ impl LlmProviderConfig {
         provider.is_some_and(|provider| {
             Self::is_builtin_provider(provider)
                 || self.custom_providers.iter().any(|item| item.id == provider)
-        }) && model_is_set
+        }) && (model_is_set || provider == Some("local"))
     }
 
     pub fn validation_model(&self) -> Option<&str> {

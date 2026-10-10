@@ -31,6 +31,7 @@ const CUSTOM: &str = "custom";
 
 /// 预置服务商列表（用于判断是否为预置）
 const PRESET_PROVIDERS: &[&str] = &[
+    "local",
     CEREBRAS,
     OPENAI,
     XAI,
@@ -173,6 +174,15 @@ fn is_preset(provider: &str) -> bool {
 /// 根据后端配置获取 LLM 端点
 pub fn endpoint_for_config(config: &LlmProviderConfig) -> LlmEndpoint {
     let active_provider = config.resolve_active_provider();
+    if active_provider == "local" {
+        return LlmEndpoint {
+            provider: "local".into(),
+            api_url: "local://managed".into(),
+            model: config.local.model.clone(),
+            timeout_secs: 180,
+            api_format: ApiFormat::OpenaiCompat,
+        };
+    }
 
     if active_provider == OPENCODE_GO {
         let (base_url, default_model, timeout_secs) = default_endpoint_parts(OPENCODE_GO);
@@ -563,6 +573,8 @@ pub fn endpoint_for_preview(
 ) -> LlmEndpoint {
     let config = if is_preset(provider) {
         LlmProviderConfig {
+            local: Default::default(),
+            local_cloud_backup: None,
             active: provider.to_string(),
             custom_base_url: base_url.map(str::to_string),
             custom_model: model.map(str::to_string),
@@ -589,6 +601,8 @@ pub fn endpoint_for_preview(
         }
     } else {
         LlmProviderConfig {
+            local: Default::default(),
+            local_cloud_backup: None,
             active: provider.to_string(),
             custom_base_url: None,
             custom_model: None,
@@ -1642,6 +1656,9 @@ pub fn save_or_delete_api_key(app_handle: &tauri::AppHandle, keyring_user: &str,
 }
 
 pub fn load_api_key_for_provider(_app_handle: &tauri::AppHandle, provider: &str) -> String {
+    if provider == "local" {
+        return "local-managed".into();
+    }
     read_api_key_for_provider(provider).unwrap_or_else(|_| {
         log::warn!("读取 API Key 失败，未修改已保存凭据: provider={provider}");
         String::new()
@@ -1877,6 +1894,8 @@ mod tests {
     #[test]
     fn named_presets_ignore_custom_endpoint_overrides() {
         let config = LlmProviderConfig {
+            local: Default::default(),
+            local_cloud_backup: None,
             active: CEREBRAS.to_string(),
             custom_base_url: Some("https://example.com".to_string()),
             custom_model: Some("gpt-oss-20b".to_string()),
@@ -1915,6 +1934,8 @@ mod tests {
     #[test]
     fn named_presets_preserve_manual_model_override() {
         let config = LlmProviderConfig {
+            local: Default::default(),
+            local_cloud_backup: None,
             active: CEREBRAS.to_string(),
             custom_base_url: None,
             custom_model: Some("openai/gpt-5.3-chat-latest".to_string()),
@@ -1949,6 +1970,8 @@ mod tests {
     #[test]
     fn custom_preset_keeps_custom_endpoint_and_model() {
         let config = LlmProviderConfig {
+            local: Default::default(),
+            local_cloud_backup: None,
             active: CUSTOM.to_string(),
             custom_base_url: Some("https://example.com".to_string()),
             custom_model: Some("foo-model".to_string()),
@@ -2003,6 +2026,8 @@ mod tests {
     #[test]
     fn invalid_active_provider_falls_back_to_latest_custom_provider() {
         let config = LlmProviderConfig {
+            local: Default::default(),
+            local_cloud_backup: None,
             active: "custom_missing".to_string(),
             custom_base_url: None,
             custom_model: None,
@@ -2056,6 +2081,8 @@ mod tests {
     #[test]
     fn assistant_endpoint_uses_separate_model_for_builtin_provider() {
         let config = LlmProviderConfig {
+            local: Default::default(),
+            local_cloud_backup: None,
             active: CEREBRAS.to_string(),
             custom_base_url: None,
             custom_model: Some("gpt-oss-120b".to_string()),
@@ -2094,6 +2121,8 @@ mod tests {
     #[test]
     fn assistant_endpoint_uses_separate_model_for_custom_provider() {
         let config = LlmProviderConfig {
+            local: Default::default(),
+            local_cloud_backup: None,
             active: "custom_a".to_string(),
             custom_base_url: None,
             custom_model: None,

@@ -69,6 +69,19 @@ pub fn build_llm_body(
     user_input: &LlmUserInput,
     options: LlmRequestOptions<'_>,
 ) -> Value {
+    if endpoint.provider == "local" {
+        let mut body = serde_json::json!({"model": endpoint.model, "messages": [
+            {"role":"system","content":system_prompt}, {"role":"user","content":user_input.text}
+        ], "stream": true, "max_tokens": 2048, "temperature": 0.1,
+        "chat_template_kwargs": {"enable_thinking":false}});
+        if options.json_output {
+            body["response_format"] = serde_json::json!({"type":"json_object"});
+        }
+        if !user_input.images.is_empty() {
+            body["messages"][1]["content"] = Value::Null;
+        }
+        return body;
+    }
     let mut body = match endpoint.api_format {
         ApiFormat::Anthropic => serde_json::json!({
             "model": endpoint.model,

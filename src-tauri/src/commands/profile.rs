@@ -511,6 +511,13 @@ pub async fn get_llm_reasoning_support(
     api_format: Option<ApiFormat>,
     reasoning_mode: Option<LlmReasoningMode>,
 ) -> Result<llm_provider::LlmReasoningSupport, String> {
+    if provider == "local" {
+        return Ok(llm_provider::LlmReasoningSupport {
+            supported: false,
+            strategy: None,
+            summary: "本地文字模型固定关闭思考".into(),
+        });
+    }
     let endpoint = llm_provider::endpoint_for_preview(
         provider.trim(),
         base_url.as_deref(),

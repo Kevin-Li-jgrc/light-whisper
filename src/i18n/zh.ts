@@ -372,6 +372,7 @@ const zh = {
     reasoningFallback: " 当前已保存的档位不会生效，实际会按模型默认行为处理。",
   },
   settings: {
+    localModelDesc: "共享当前启用的本地文字模型，无需 API Key。",
     title: "设置",
     appearance: "外观",
     themeLight: "浅色",
